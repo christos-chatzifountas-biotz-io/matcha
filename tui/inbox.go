@@ -1397,8 +1397,8 @@ func (m *Inbox) resizeList() {
 		available -= lipgloss.Height(inboxHelpStyle.Render(m.list.Help.View(m.list)))
 	}
 	m.list.SetHeight(max(1, available))
-	cap := int(m.PaginationPageSize())
-	if excess := m.list.Paginator.PerPage - cap; excess > 0 {
+	pageLimit := int(m.PaginationPageSize())
+	if excess := m.list.Paginator.PerPage - pageLimit; excess > 0 {
 		m.list.SetHeight(max(1, m.list.Height()-excess))
 	}
 }

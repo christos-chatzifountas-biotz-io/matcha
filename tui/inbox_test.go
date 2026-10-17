@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/floatpane/matcha/backend"
 	"github.com/floatpane/matcha/config"
 	"github.com/floatpane/matcha/fetcher"
@@ -548,9 +549,21 @@ func TestInboxPaginationPageSizeUsesPaneHeightAndConfiguredMinimum(t *testing.T)
 	if got := inbox.PaginationPageSize(); got != 40 {
 		t.Fatalf("small pane page size = %d, want 40", got)
 	}
+	if got := inbox.list.Paginator.PerPage; got <= 10 {
+		t.Fatalf("small pane shows %d messages per page, want more than half the pane", got)
+	}
+	if got := lipgloss.Height(inbox.View().Content); got > 20 {
+		t.Fatalf("small pane renders %d rows, want at most 20", got)
+	}
 	inbox.SetSize(80, 60)
 	if got := inbox.PaginationPageSize(); got != 60 {
 		t.Fatalf("tall pane page size = %d, want 60", got)
+	}
+	if got := inbox.list.Paginator.PerPage; got < 40 {
+		t.Fatalf("tall pane shows %d messages per page, want at least 40", got)
+	}
+	if got := lipgloss.Height(inbox.View().Content); got > 60 {
+		t.Fatalf("tall pane renders %d rows, want at most 60", got)
 	}
 	inbox.SetPaginationMinPageSize(80)
 	if got := inbox.PaginationPageSize(); got != 80 {

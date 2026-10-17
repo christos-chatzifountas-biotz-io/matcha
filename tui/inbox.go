@@ -522,10 +522,6 @@ func (m *Inbox) updateList() {
 	if m.width > 0 {
 		l.SetWidth(m.width)
 	}
-	if m.height > 0 {
-		l.SetHeight(m.height / 2)
-	}
-
 	// Restore index
 	// If index is out of bounds (e.g. list shrank), clamp it.
 	if currentIndex >= len(items) {
@@ -537,6 +533,7 @@ func (m *Inbox) updateList() {
 	l.Select(currentIndex)
 
 	m.list = l
+	m.resizeList()
 }
 
 func (m *Inbox) displayEmails() []fetcher.Email {
@@ -1176,10 +1173,7 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 			}
 		}
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.list.SetWidth(msg.Width)
-		m.list.SetHeight(msg.Height / 2)
+		m.SetSize(msg.Width, msg.Height)
 		if m.searchOverlay != nil {
 			return m, m.searchOverlay.Update(msg, m.mailbox, m.currentAccountID)
 		}
@@ -1384,7 +1378,33 @@ func (m *Inbox) PaginationPageSize() uint32 {
 	return uint32(max(minimum, m.height))
 }
 
+// resizeList gives the message pager the pane's available rows after the
+// surrounding tab bar, help, and any search or thread status are laid out.
+func (m *Inbox) resizeList() {
+	if m.height <= 0 {
+		return
+	}
+
+	headerVisible := isUIVisible("header")
+	m.list.SetShowTitle(headerVisible)
+	available := m.height
+	if headerVisible && len(m.tabs) > 1 {
+		available -= lipgloss.Height(tabBarStyle.Render("ALL"))
+	}
+	if m.isThreaded() {
+		available -= lipgloss.Height(m.threadedStatusBar())
+	}
+	if m.searchOverlay != nil {
+		available -= 1 + lipgloss.Height(m.searchOverlay.View())
+	}
+	if isUIVisible("status_bar") {
+		available -= lipgloss.Height(inboxHelpStyle.Render(m.list.Help.View(m.list)))
+	}
+	m.list.SetHeight(max(1, available))
+}
+
 func (m *Inbox) View() tea.View {
+	m.resizeList()
 	var b strings.Builder
 
 	// The tab bar is part of the "header" component. Skip it when a plugin
@@ -1410,10 +1430,6 @@ func (m *Inbox) View() tea.View {
 		b.WriteString(tabBar)
 		b.WriteString("\n")
 	}
-
-	// Toggle the list title visibility based on the header component state.
-	// The list title is the "Inbox" / "Sent" / folder name header line.
-	m.list.SetShowTitle(headerVisible)
 
 	b.WriteString(m.list.View())
 
@@ -1676,7 +1692,7 @@ func (m *Inbox) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	m.list.SetWidth(width)
-	m.list.SetHeight(height / 2)
+	m.resizeList()
 }
 
 // SetFolderName sets a custom folder name for the inbox title.

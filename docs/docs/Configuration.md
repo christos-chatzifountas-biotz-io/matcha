@@ -74,7 +74,7 @@ Configuration is stored in `~/.config/matcha/config.json`.
 
 `body_cache_threshold_mb` sets the maximum size (in megabytes) for the local email body cache. When this limit is reached, least recently accessed cached emails are evicted across all folders to make room for new ones. Defaults to `100` MB if not specified.
 
-`pagination_min_page_size` sets the minimum number of messages fetched per account for each folder page. Matcha uses the larger of this value and the inbox pane height, so page size grows with a taller terminal. It defaults to `40` when omitted. The setting applies to the first folder fetch and to later pages.
+`pagination_min_page_size` sets the minimum number of messages fetched per account for each folder page. Matcha uses the larger of this value and the inbox pane height, so page size grows with a taller terminal. It defaults to `40` when omitted. The setting applies to the first folder fetch and to later pages. The visible pager fills the inbox pane after reserving space for tabs and status lines, so its on-screen row count depends on terminal height.
 
 `undo_delay_seconds` sets the delay (in seconds) before a sent email is actually delivered, giving you a chance to cancel mistakes. During this window, a countdown shows "Sending in Xs... (u to undo)". Pressing the configured undo key cancels the send. After the delay expires, the email is transmitted and cannot be undone. Set to `0` to send immediately with no undo window. Defaults to `5` seconds if not specified.
 

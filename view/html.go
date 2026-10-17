@@ -619,6 +619,13 @@ const (
 // Returns the rendered body text, image placements for out-of-band rendering, and any error.
 // mimeType is "text/html", "text/plain", or "" (unknown — falls back to legacy markdown→HTML pre-pass).
 func ProcessBodyWithInline(rawBody, mimeType string, inline []InlineImage, h1Style, h2Style, bodyStyle lipgloss.Style, disableImages bool) (string, []ImagePlacement, error) {
+	return ProcessBodyWithInlineRemote(rawBody, mimeType, inline, h1Style, h2Style, bodyStyle, disableImages, false)
+}
+
+// ProcessBodyWithInlineRemote renders embedded images and, only when allowed,
+// fetches remote images referenced by the email. The permission is scoped to
+// the caller's current message view.
+func ProcessBodyWithInlineRemote(rawBody, mimeType string, inline []InlineImage, h1Style, h2Style, bodyStyle lipgloss.Style, disableImages, allowRemoteImages bool) (string, []ImagePlacement, error) {
 	inlineMap := make(map[string]string, len(inline))
 	for _, img := range inline {
 		cid := strings.TrimSpace(img.CID)
@@ -630,17 +637,17 @@ func ProcessBodyWithInline(rawBody, mimeType string, inline []InlineImage, h1Sty
 		}
 		inlineMap[cid] = img.Base64
 	}
-	return processBody(rawBody, mimeType, inlineMap, h1Style, h2Style, bodyStyle, disableImages)
+	return processBody(rawBody, mimeType, inlineMap, h1Style, h2Style, bodyStyle, disableImages, allowRemoteImages)
 }
 
 // ProcessBody takes a raw email body, decodes it, and formats it as plain
 // text with terminal hyperlinks.
 // mimeType is "text/html", "text/plain", or "" (unknown — falls back to legacy markdown→HTML pre-pass).
 func ProcessBody(rawBody, mimeType string, h1Style, h2Style, bodyStyle lipgloss.Style, disableImages bool) (string, []ImagePlacement, error) {
-	return processBody(rawBody, mimeType, nil, h1Style, h2Style, bodyStyle, disableImages)
+	return processBody(rawBody, mimeType, nil, h1Style, h2Style, bodyStyle, disableImages, false)
 }
 
-func processBody(rawBody, mimeType string, inline map[string]string, h1Style, h2Style, bodyStyle lipgloss.Style, disableImages bool) (string, []ImagePlacement, error) {
+func processBody(rawBody, mimeType string, inline map[string]string, h1Style, h2Style, bodyStyle lipgloss.Style, disableImages, allowRemoteImages bool) (string, []ImagePlacement, error) {
 	decodedBody, err := decodeQuotedPrintable(rawBody)
 	if err != nil {
 		decodedBody = rawBody
@@ -658,7 +665,7 @@ func processBody(rawBody, mimeType string, inline map[string]string, h1Style, h2
 	}
 	htmlBody = htmlSanitizer.SanitizeBytes(htmlBody)
 
-	result, placements, err := renderHTMLToText(htmlBody, inline, h1Style, h2Style, disableImages)
+	result, placements, err := renderHTMLToText(htmlBody, inline, h1Style, h2Style, disableImages, allowRemoteImages)
 	if err != nil {
 		return "", nil, err
 	}
@@ -670,7 +677,7 @@ func processBody(rawBody, mimeType string, inline map[string]string, h1Style, h2
 	// HTML path produces nothing.
 	if directHTML && strings.TrimSpace(result) == "" {
 		fallbackHTML := htmlSanitizer.SanitizeBytes(markdownToHTML([]byte(decodedBody)))
-		result, placements, err = renderHTMLToText(fallbackHTML, inline, h1Style, h2Style, disableImages)
+		result, placements, err = renderHTMLToText(fallbackHTML, inline, h1Style, h2Style, disableImages, allowRemoteImages)
 		if err != nil {
 			return "", nil, err
 		}
@@ -686,7 +693,7 @@ type pendingImage struct {
 	rows    int
 }
 
-func renderHTMLToText(htmlBody []byte, inline map[string]string, h1Style, h2Style lipgloss.Style, disableImages bool) (string, []ImagePlacement, error) {
+func renderHTMLToText(htmlBody []byte, inline map[string]string, h1Style, h2Style lipgloss.Style, disableImages, allowRemoteImages bool) (string, []ImagePlacement, error) {
 	// Parse HTML into structured elements using C parser.
 	elements, ok := clib.HTMLToElements(string(htmlBody))
 	if !ok {
@@ -737,7 +744,7 @@ func renderHTMLToText(htmlBody []byte, inline map[string]string, h1Style, h2Styl
 			}
 
 		case clib.HElemImage:
-			renderImageElement(&text, &imgIndex, &pendingImages, elem, inline, disableImages)
+			renderImageElement(&text, &imgIndex, &pendingImages, elem, inline, disableImages, allowRemoteImages)
 
 		case clib.HElemTable:
 			headerRows := 0
@@ -788,14 +795,14 @@ func renderHTMLToText(htmlBody []byte, inline map[string]string, h1Style, h2Styl
 	return result, placements, nil
 }
 
-func renderImageElement(text *strings.Builder, imgIndex *int, pendingImages *[]pendingImage, elem clib.HTMLElement, inline map[string]string, disableImages bool) {
+func renderImageElement(text *strings.Builder, imgIndex *int, pendingImages *[]pendingImage, elem clib.HTMLElement, inline map[string]string, disableImages, allowRemoteImages bool) {
 	src := strings.TrimSpace(elem.Attr1)
 	alt := stripTerminalControls(elem.Attr2)
 	if hasTerminalControls(src) {
 		return
 	}
 
-	if !disableImages && imageProtocolSupported() {
+	if !disableImages && imageProtocolSupported() && (allowRemoteImages || !isRemoteImageURL(src)) {
 		payload := resolveImagePayload(src, inline)
 
 		if payload != "" {

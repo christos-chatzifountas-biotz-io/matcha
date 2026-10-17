@@ -2,8 +2,11 @@ package view
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"regexp"
 	"strings"
@@ -12,6 +15,43 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/floatpane/matcha/clib"
 )
+
+func TestRemoteImagesRequireOptInWhileInlineImagesRender(t *testing.T) {
+	t.Setenv("TERM", "xterm-kitty")
+	remoteImageCache.Purge()
+	t.Cleanup(remoteImageCache.Purge)
+
+	const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+	pngData, err := base64.StdEncoding.DecodeString(pngBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngData)
+	}))
+	defer server.Close()
+
+	body := `<img src="cid:logo" alt="embedded"><img src="` + server.URL + `/pixel.png" alt="remote">`
+	inline := []InlineImage{{CID: "logo", Base64: pngBase64}}
+	style := lipgloss.NewStyle()
+	_, placements, err := ProcessBodyWithInline(body, BodyMIMETypeHTML, inline, style, style, style, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 0 || len(placements) != 1 {
+		t.Fatalf("default render made %d remote requests and %d placements, want 0 requests and 1 embedded image", requests, len(placements))
+	}
+	_, placements, err = ProcessBodyWithInlineRemote(body, BodyMIMETypeHTML, inline, style, style, style, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || len(placements) != 2 {
+		t.Fatalf("opt-in render made %d remote requests and %d placements, want 1 request and 2 images", requests, len(placements))
+	}
+}
 
 // clearAllTerminalEnv clears all environment variables that could indicate terminal capabilities
 func clearAllTerminalEnv() {

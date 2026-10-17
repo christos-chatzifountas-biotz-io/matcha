@@ -8,6 +8,27 @@ import (
 	"github.com/floatpane/matcha/fetcher"
 )
 
+func TestRemoteImagePermissionIsPerMessageView(t *testing.T) {
+	t.Setenv("TERM", "xterm-kitty")
+	email := fetcher.Email{Body: "hello", BodyMIMEType: "text/plain"}
+	first := NewEmailView(email, 0, 80, 24, MailboxInbox, true)
+	if first.showImages || first.showRemoteImages {
+		t.Fatal("image display and remote loading should start disabled")
+	}
+	first.Update(tea.KeyPressMsg{Code: 'I', Text: "I"})
+	if !first.showImages || !first.showRemoteImages {
+		t.Fatal("explicit remote-image action should enable images in this view")
+	}
+	first.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	if !first.showRemoteImages {
+		t.Fatal("resizing should retain this message's permission")
+	}
+	second := NewEmailView(email, 1, 80, 24, MailboxInbox, false)
+	if second.showRemoteImages {
+		t.Fatal("remote-image permission leaked to another message view")
+	}
+}
+
 func TestEmailViewUpdate(t *testing.T) {
 	emailWithAttachments := fetcher.Email{
 		From:    "test@example.com",

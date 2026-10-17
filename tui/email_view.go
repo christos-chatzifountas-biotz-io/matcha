@@ -61,6 +61,7 @@ type EmailView struct {
 	mailbox            MailboxKind
 	disableImages      bool
 	showImages         bool
+	showRemoteImages   bool
 	isSMIME            bool
 	smimeTrusted       bool
 	isEncrypted        bool
@@ -331,12 +332,27 @@ func (m *EmailView) handleAttachmentFocusKey(msg tea.KeyPressMsg) (bool, func() 
 }
 
 // handleEmailBodyKey handles key presses when the email body has focus.
+func (m *EmailView) loadRemoteImagesKey() string {
+	if config.Keybinds.Email.LoadRemoteImages != "" {
+		return config.Keybinds.Email.LoadRemoteImages
+	}
+	return "I"
+}
+
 func (m *EmailView) handleEmailBodyKey(msg tea.KeyPressMsg) (bool, func() (tea.Model, tea.Cmd)) {
 	kb := config.Keybinds
 	switch msg.String() {
 	case kb.Email.ToggleImages:
 		if view.ImageProtocolSupported() {
 			m.showImages = !m.showImages
+			ClearKittyGraphics()
+			m.regenerateBody()
+			return true, func() (tea.Model, tea.Cmd) { return m, nil }
+		}
+	case m.loadRemoteImagesKey():
+		if view.ImageProtocolSupported() && !m.showRemoteImages {
+			m.showImages = true
+			m.showRemoteImages = true
 			ClearKittyGraphics()
 			m.regenerateBody()
 			return true, func() (tea.Model, tea.Cmd) { return m, nil }
@@ -430,7 +446,7 @@ func rsvpResponseFromKey(key string, kb config.KeybindsConfig) string {
 // toggling image display.
 func (m *EmailView) regenerateBody() {
 	inlineImages := inlineImagesFromAttachments(m.email.Attachments)
-	body, placements, err := view.ProcessBodyWithInline(m.email.Body, m.email.BodyMIMEType, inlineImages, H1Style, H2Style, BodyStyle, !m.showImages)
+	body, placements, err := view.ProcessBodyWithInlineRemote(m.email.Body, m.email.BodyMIMEType, inlineImages, H1Style, H2Style, BodyStyle, !m.showImages, m.showRemoteImages)
 	if err != nil {
 		body = fmt.Sprintf("Error rendering body: %v", err)
 	}
@@ -454,7 +470,7 @@ func (m *EmailView) handleWindowSize(msg tea.WindowSizeMsg) {
 
 	ClearKittyGraphics()
 	inlineImages := inlineImagesFromAttachments(m.email.Attachments)
-	body, placements, err := view.ProcessBodyWithInline(m.email.Body, m.email.BodyMIMEType, inlineImages, H1Style, H2Style, BodyStyle, !m.showImages)
+	body, placements, err := view.ProcessBodyWithInlineRemote(m.email.Body, m.email.BodyMIMEType, inlineImages, H1Style, H2Style, BodyStyle, !m.showImages, m.showRemoteImages)
 	if err != nil {
 		body = fmt.Sprintf("Error rendering body: %v", err)
 	}
@@ -562,6 +578,10 @@ func (m *EmailView) renderHelp() string {
 	if view.ImageProtocolSupported() {
 		shortcuts.WriteString(helpSeparator)
 		shortcuts.WriteString(helpItem("\uf03e", kbKey(kb.Email.ToggleImages, "i"), "toggle images").String())
+		if !m.showRemoteImages {
+			shortcuts.WriteString(helpSeparator)
+			shortcuts.WriteString(helpItem("\uf03e", m.loadRemoteImagesKey(), "load remote images").String())
+		}
 	}
 	for _, pk := range m.pluginKeyBindings {
 		shortcuts.WriteString(" • ")

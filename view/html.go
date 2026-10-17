@@ -2,10 +2,12 @@ package view
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"mime/quotedprintable"
+	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -395,7 +397,12 @@ func fetchRemoteBase64(url string) string {
 	}
 
 	client := httpclient.New(httpclient.RemoteImageTimeout)
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		debugImageProtocol("remote request failed url=%s err=%v", url, err)
+		return ""
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		debugImageProtocol("remote fetch failed url=%s err=%v", url, err)
 		return ""

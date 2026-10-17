@@ -19,7 +19,7 @@ func TestFetchFolderEmailsCmdUsesPageLimit(t *testing.T) {
 	}
 	for i := range 3 {
 		message := fmt.Sprintf("From: sender@example.com\r\nTo: me@example.com\r\nSubject: message %d\r\nMessage-ID: <message-%d@example.com>\r\n\r\nbody\r\n", i, i)
-		if err := os.WriteFile(filepath.Join(root, "cur", fmt.Sprintf("message-%d:2,", i)), []byte(message), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "new", fmt.Sprintf("message-%d", i)), []byte(message), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

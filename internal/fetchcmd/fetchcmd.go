@@ -231,7 +231,7 @@ func FetchFolderEmailsPaginatedCmd(account *config.Account, folderName string, l
 	return func() tea.Msg {
 		emails, err := fetcher.FetchFolderEmails(account, folderName, limit, offset)
 		if err != nil {
-			return tui.FetchErr(err)
+			return tui.FolderEmailsPageFailedMsg{FolderName: folderName, Err: err}
 		}
 		return tui.FolderEmailsAppendedMsg{
 			Emails:     emails,

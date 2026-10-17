@@ -251,6 +251,23 @@ func (m *FolderInbox) Init() tea.Cmd {
 }
 
 func (m *FolderInbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
+	// A page can finish after the user switches folders or opens an overlay.
+	// Only change the loading state of the folder that made the request.
+	switch msg := msg.(type) {
+	case FetchingMoreEmailsMsg:
+		if msg.FolderName != "" && msg.FolderName != m.currentFolder {
+			return m, nil
+		}
+		m.inbox.isFetching = true
+		m.inbox.list.Title = m.inbox.getTitle()
+		return m, nil
+	case FolderEmailsPageFailedMsg:
+		if msg.FolderName == m.currentFolder {
+			m.inbox.isFetching = false
+			m.inbox.list.Title = m.inbox.getTitle()
+		}
+		return m, nil
+	}
 	// If move overlay is active, handle its input
 	if m.movingEmail {
 		return m.updateMoveOverlay(msg)

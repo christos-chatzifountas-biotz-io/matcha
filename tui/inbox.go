@@ -1208,8 +1208,18 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		return m, nil
 
 	case FetchingMoreEmailsMsg:
+		if msg.FolderName != "" && msg.FolderName != m.folderKey() {
+			return m, nil
+		}
 		m.isFetching = true
 		m.list.Title = m.getTitle()
+		return m, nil
+
+	case FolderEmailsPageFailedMsg:
+		if msg.FolderName == m.folderKey() {
+			m.isFetching = false
+			m.list.Title = m.getTitle()
+		}
 		return m, nil
 
 	case EmailsAppendedMsg:

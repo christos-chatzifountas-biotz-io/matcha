@@ -1,12 +1,39 @@
 package tui
 
 import (
+	"errors"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/floatpane/matcha/config"
 	"github.com/floatpane/matcha/fetcher"
 )
+
+func TestFolderPaginationFailureClearsOnlyActiveFolder(t *testing.T) {
+	const folder = "UnreadTestFolder"
+	accounts := []config.Account{{ID: "a", FetchEmail: "a@example.com"}}
+	fi := NewFolderInbox([]string{folder, "ZOtherTestFolder"}, accounts)
+	fi.SetEmails([]fetcher.Email{{UID: 1, AccountID: "a", IsRead: true}}, accounts)
+	fi.Update(tea.KeyPressMsg{Code: 'U', Text: "U"})
+	if !fi.inbox.isFetching {
+		t.Fatal("unread pagination should be marked as loading")
+	}
+	fi.Update(FolderEmailsPageFailedMsg{FolderName: "ZOtherTestFolder", Err: errors.New("old request")})
+	if !fi.inbox.isFetching {
+		t.Fatal("stale folder error cleared the current loading state")
+	}
+	fi.Update(FolderEmailsPageFailedMsg{FolderName: folder, Err: errors.New("network down")})
+	if fi.inbox.isFetching {
+		t.Fatal("failed request left the unread list loading")
+	}
+	fi.Update(FetchingMoreEmailsMsg{FolderName: "ZOtherTestFolder"})
+	if fi.inbox.isFetching {
+		t.Fatal("stale loading event restarted loading in the current folder")
+	}
+	if cmd := fi.ContinueUnreadFetch(); cmd == nil {
+		t.Fatal("unread pagination cannot retry after a failed request")
+	}
+}
 
 func TestFolderInboxUnreadOnlyFetchesCurrentFolder(t *testing.T) {
 	const folder = "UnreadTestFolder"

@@ -1235,7 +1235,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		return m, tea.Batch(append(m.pluginFlagCmds(), m.pluginNotifyCmd(), m.folderInbox.ContinueUnreadFetch())...)
 
 	case tui.FetchFolderMoreEmailsMsg:
-		if msg.AccountID == "" || m.config == nil {
+		if msg.AccountID == "" || m.config == nil || m.folderInbox == nil || m.folderInbox.GetCurrentFolder() != msg.FolderName {
 			return m, nil
 		}
 		account := m.config.GetAccountByID(msg.AccountID)
@@ -1246,10 +1246,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		if msg.Limit > 0 {
 			limit = msg.Limit
 		}
-		return m, tea.Batch(
-			func() tea.Msg { return tui.FetchingMoreEmailsMsg{} },
-			fetchcmd.FetchFolderEmailsPaginatedCmd(account, msg.FolderName, limit, msg.Offset),
-		)
+		_, _ = m.folderInbox.Update(tui.FetchingMoreEmailsMsg{FolderName: msg.FolderName})
+		return m, fetchcmd.FetchFolderEmailsPaginatedCmd(account, msg.FolderName, limit, msg.Offset)
 
 	case tui.FolderEmailsAppendedMsg:
 		if m.folderInbox == nil || m.folderInbox.GetCurrentFolder() != msg.FolderName {
@@ -1440,10 +1438,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 			limit = msg.Limit
 		}
 		folderName := m.folderName()
-		return m, tea.Batch(
-			func() tea.Msg { return tui.FetchingMoreEmailsMsg{} },
-			fetchcmd.FetchFolderEmailsPaginatedCmd(account, folderName, limit, msg.Offset),
-		)
+		m.current, _ = m.current.Update(tui.FetchingMoreEmailsMsg{FolderName: folderName})
+		return m, fetchcmd.FetchFolderEmailsPaginatedCmd(account, folderName, limit, msg.Offset)
 
 	case tui.SearchRequestedMsg:
 		folderName := msg.FolderName
@@ -1793,9 +1789,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		m.current = tui.NewStatus("Fetching email content...")
 		return m, tea.Batch(append(m.pluginFlagCmds(), m.current.Init(), fetchcmd.FetchFolderEmailBodyCmd(m.config, msg.UID, msg.AccountID, folderName, msg.Mailbox), m.pluginNotifyCmd())...)
 
-	case tui.FetchErr:
-		log.Printf("paginated fetch error: %v", error(msg))
-		return m, m.showErrorCmd(error(msg).Error())
+	case tui.FolderEmailsPageFailedMsg:
+		if m.folderInbox != nil && m.folderInbox.GetCurrentFolder() != msg.FolderName {
+			return m, nil
+		}
+		if m.folderInbox != nil && m.current != m.folderInbox {
+			_, _ = m.folderInbox.Update(msg)
+		}
+		log.Printf("paginated fetch error for %s: %v", msg.FolderName, msg.Err)
+		return m, m.showErrorCmd(msg.Err.Error())
 
 	case tui.EmailBodyFetchedMsg:
 		if msg.Err != nil {

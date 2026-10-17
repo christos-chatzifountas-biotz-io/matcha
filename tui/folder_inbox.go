@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	overlay "github.com/floatpane/bubble-overlay"
 	"github.com/floatpane/matcha/config"
 	"github.com/floatpane/matcha/fetcher"
@@ -315,9 +316,11 @@ func (m *FolderInbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocycl
 		if msg.Button != tea.MouseLeft {
 			return m, nil
 		}
-		if msg.X < sidebarWidth {
-			// title(1) + PaddingBottom(1) = 2 header rows (explicit \n doesn't add a row)
-			folderIdx := msg.Y - 2
+		if msg.X < m.effectiveSidebarWidth() {
+			folderIdx := msg.Y
+			if isUIVisible("header") {
+				folderIdx -= lipgloss.Height(sidebarTitleStyle.Render(" "))
+			}
 			if folderIdx >= 0 && folderIdx < len(m.folders) {
 				m.activeFolderIdx = folderIdx
 				return m, m.switchFolder()
@@ -907,20 +910,18 @@ func (m *FolderInbox) renderSidebar() string {
 				title = acc.FetchEmail
 			}
 		}
-		b.WriteString(sidebarTitleStyle.Render(title))
+		b.WriteString(sidebarTitleStyle.Render(ansi.Truncate(title, sidebarWidth-4, "…")))
 		b.WriteString("\n")
 	}
 
 	for i, folder := range m.folders {
-		displayName := m.formatFolderName(folder)
+		var suffix string
 		unread := m.unread[folder]
-
-		var tab string
 		if unread > 0 {
-			tab = fmt.Sprintf("%s (%d)", displayName, unread)
-		} else {
-			tab = displayName
+			suffix = fmt.Sprintf(" (%d)", unread)
 		}
+		nameWidth := max(1, sidebarWidth-4-ansi.StringWidth(suffix))
+		tab := ansi.Truncate(m.formatFolderName(folder), nameWidth, "…") + suffix
 
 		if i == m.activeFolderIdx {
 			b.WriteString(activeFolderStyle.Width(sidebarWidth - 4).Render(tab))

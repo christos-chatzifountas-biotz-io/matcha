@@ -2,12 +2,51 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/floatpane/matcha/config"
 	"github.com/floatpane/matcha/fetcher"
 )
+
+func TestFolderSidebarClickSelectsRenderedFolder(t *testing.T) {
+	previousProvider := uiProvider
+	t.Cleanup(func() { uiProvider = previousProvider })
+	folders := []string{"INBOX", "AardvarkFolderLong", "BravoFolderLonger", "CharlieFolderLong"}
+	for _, headerVisible := range []bool{true, false} {
+		uiProvider = &stubUIProvider{visibility: map[string]bool{"header": headerVisible}}
+		for _, folder := range folders {
+			fi := NewFolderInbox(folders, []config.Account{{ID: "a", Name: "Account"}})
+			fi.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+			fi.unread = map[string]int{
+				"AardvarkFolderLong": 123456,
+				"BravoFolderLonger":  123456,
+				"CharlieFolderLong":  123456,
+			}
+			rows := strings.Split(ansi.Strip(fi.renderSidebar()), "\n")
+			label := folder
+			if len(label) > 8 {
+				label = label[:8]
+			}
+			row := -1
+			for y, line := range rows {
+				if strings.Contains(line, label) {
+					row = y
+					break
+				}
+			}
+			if row < 0 {
+				t.Fatalf("folder %q not rendered in sidebar", folder)
+			}
+			fi.Update(tea.MouseClickMsg{X: 3, Y: row, Button: tea.MouseLeft})
+			if got := fi.GetCurrentFolder(); got != folder {
+				t.Errorf("header visible %t: clicking %q at row %d selected %q", headerVisible, folder, row, got)
+			}
+		}
+	}
+}
 
 func TestFolderPaginationFailureClearsOnlyActiveFolder(t *testing.T) {
 	const folder = "UnreadTestFolder"

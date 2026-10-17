@@ -1119,6 +1119,12 @@ func (m *FolderInbox) MarkEmailAsRead(uid uint32, accountID string) tea.Cmd {
 	return m.wrapInboxCmd(m.inbox.continueUnreadFetch())
 }
 
+// ContinueUnreadFetch requests another page when the active unread-only list
+// is still short after loading a folder from the cache or server.
+func (m *FolderInbox) ContinueUnreadFetch() tea.Cmd {
+	return m.wrapInboxCmd(m.inbox.continueUnreadFetch())
+}
+
 // GetCurrentFolder returns the currently selected folder name.
 func (m *FolderInbox) GetCurrentFolder() string {
 	return m.currentFolder

@@ -672,7 +672,7 @@ func (m *Model) refreshFolderEmails(folderName string) tea.Cmd {
 func (m *Model) fetchCurrentFolderEmails(folderName string) tea.Cmd {
 	if cached, ok := m.store.FolderEmails[folderName]; ok {
 		m.setFolderInboxEmails(folderName, cached)
-		return m.pluginNotifyCmd()
+		return tea.Batch(m.folderInbox.ContinueUnreadFetch(), m.pluginNotifyCmd())
 	}
 	if diskCached := emailstore.LoadFolderEmailsFromCache(folderName); len(diskCached) > 0 {
 		m.store.FolderEmails[folderName] = diskCached
@@ -910,8 +910,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		}
 	}
 
-	m.current, cmd = m.current.Update(msg)
-	cmds = append(cmds, cmd)
+	// Folder fetch results are applied below to both the store and FolderInbox.
+	// Forwarding them here would append a page twice and lose the next-page cmd.
+	switch msg.(type) {
+	case tui.FolderEmailsFetchedMsg, tui.FolderEmailsAppendedMsg:
+	default:
+		m.current, cmd = m.current.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
 	if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
 		if composer := getCurrentComposer(m.current); composer != nil && m.plugins != nil {
@@ -1226,7 +1232,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 			return m, nil
 		}
 		m.setFolderInboxEmails(msg.FolderName, msg.Emails)
-		return m, tea.Batch(append(m.pluginFlagCmds(), m.pluginNotifyCmd())...)
+		return m, tea.Batch(append(m.pluginFlagCmds(), m.pluginNotifyCmd(), m.folderInbox.ContinueUnreadFetch())...)
 
 	case tui.FetchFolderMoreEmailsMsg:
 		if msg.AccountID == "" || m.config == nil {
@@ -1249,11 +1255,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		if m.folderInbox == nil || m.folderInbox.GetCurrentFolder() != msg.FolderName {
 			return m, nil
 		}
-		m.folderInbox.Update(msg)
+		_, fetchCmd := m.folderInbox.Update(msg)
 		m.store.AppendToFolder(msg.FolderName, msg.Emails)
 		m.cacheFolderEmailBodies(msg.FolderName, m.store.FolderEmails[msg.FolderName])
 		m.syncUnreadBadge()
-		return m, nil
+		return m, fetchCmd
 
 	case tui.MoveEmailToFolderMsg:
 		if m.config == nil {

@@ -535,10 +535,26 @@ func TestFetchMoreTriggeredAtListEnd(t *testing.T) {
 		t.Fatalf("expected MailboxInbox, got %s", fetchMsg.Mailbox)
 	}
 
-	// Default list height is 14, but our minimum limit is 20
-	expectedLimit := uint32(20)
+	// A small pane uses the default minimum of 40 messages.
+	expectedLimit := uint32(40)
 	if fetchMsg.Limit != expectedLimit {
 		t.Fatalf("expected Limit %d, got %d", expectedLimit, fetchMsg.Limit)
+	}
+}
+
+func TestInboxPaginationPageSizeUsesPaneHeightAndConfiguredMinimum(t *testing.T) {
+	inbox := NewInbox(nil, nil)
+	inbox.SetSize(80, 20)
+	if got := inbox.PaginationPageSize(); got != 40 {
+		t.Fatalf("small pane page size = %d, want 40", got)
+	}
+	inbox.SetSize(80, 60)
+	if got := inbox.PaginationPageSize(); got != 60 {
+		t.Fatalf("tall pane page size = %d, want 60", got)
+	}
+	inbox.SetPaginationMinPageSize(80)
+	if got := inbox.PaginationPageSize(); got != 80 {
+		t.Fatalf("configured minimum page size = %d, want 80", got)
 	}
 }
 

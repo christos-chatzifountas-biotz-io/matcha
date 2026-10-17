@@ -317,35 +317,36 @@ type AccountTab struct {
 }
 
 type Inbox struct {
-	list               list.Model
-	isFetching         bool
-	isRefreshing       bool
-	emailsCount        int
-	totalEmailCount    int // actual number of emails (not threads) for status bar
-	accounts           []config.Account
-	emailsByAccount    map[string][]fetcher.Email
-	allEmails          []fetcher.Email
-	tabs               []AccountTab
-	activeTabIndex     int
-	width              int
-	height             int
-	currentAccountID   string // Empty means "ALL"
-	emailCountByAcct   map[string]int
-	mailbox            MailboxKind
-	folderName         string          // Custom folder name override for title
-	noMoreByAccount    map[string]bool // Per-account: true when pagination returns 0 results
-	extraShortHelpKeys []key.Binding
-	pluginStatus       string // Persistent status text set by plugins
-	pluginKeyBindings  []PluginKeyBinding
-	searchOverlay      *SearchOverlay
-	searchActive       bool
-	searchQuery        string
-	searchResults      []fetcher.Email
-	unreadOnly         bool
-	nextUnreadAccount  int
-	threaded           map[string]bool
-	expanded           map[string]bool
-	defaultThreaded    bool
+	list                  list.Model
+	isFetching            bool
+	isRefreshing          bool
+	emailsCount           int
+	totalEmailCount       int // actual number of emails (not threads) for status bar
+	accounts              []config.Account
+	emailsByAccount       map[string][]fetcher.Email
+	allEmails             []fetcher.Email
+	tabs                  []AccountTab
+	activeTabIndex        int
+	width                 int
+	height                int
+	currentAccountID      string // Empty means "ALL"
+	emailCountByAcct      map[string]int
+	mailbox               MailboxKind
+	folderName            string          // Custom folder name override for title
+	noMoreByAccount       map[string]bool // Per-account: true when pagination returns 0 results
+	extraShortHelpKeys    []key.Binding
+	pluginStatus          string // Persistent status text set by plugins
+	pluginKeyBindings     []PluginKeyBinding
+	searchOverlay         *SearchOverlay
+	searchActive          bool
+	searchQuery           string
+	searchResults         []fetcher.Email
+	unreadOnly            bool
+	nextUnreadAccount     int
+	threaded              map[string]bool
+	expanded              map[string]bool
+	defaultThreaded       bool
+	paginationMinPageSize int
 
 	// Visual mode state (Vim-style multi-select)
 	visualMode     bool              // Whether visual mode is active
@@ -1320,10 +1321,7 @@ func (m *Inbox) allAccountsExhausted() bool {
 
 func (m *Inbox) fetchMoreCmds() []tea.Cmd {
 	var cmds []tea.Cmd
-	limit := uint32(m.list.Height())
-	if limit < 20 {
-		limit = 20
-	}
+	limit := m.PaginationPageSize()
 
 	if m.currentAccountID == "" {
 		if len(m.accounts) == 0 {
@@ -1369,6 +1367,21 @@ func (m *Inbox) fetchMoreCmds() []tea.Cmd {
 		}
 	}(m.currentAccountID, offset))
 	return cmds
+}
+
+// SetPaginationMinPageSize configures the minimum number of messages fetched
+// for each page. A non-positive value uses the default.
+func (m *Inbox) SetPaginationMinPageSize(size int) {
+	m.paginationMinPageSize = size
+}
+
+// PaginationPageSize uses the inbox pane height, with a configurable minimum.
+func (m *Inbox) PaginationPageSize() uint32 {
+	minimum := m.paginationMinPageSize
+	if minimum <= 0 {
+		minimum = config.DefaultPaginationMinPageSize
+	}
+	return uint32(max(minimum, m.height))
 }
 
 func (m *Inbox) View() tea.View {

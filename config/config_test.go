@@ -25,6 +25,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 
 	// Define a sample configuration to save with multiple accounts.
 	expectedConfig := &Config{
+		PaginationMinPageSize: 55,
 		Accounts: []Account{
 			{
 				ID:              "test-id-1",
@@ -67,6 +68,23 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	// reflect.DeepEqual is used for a deep comparison of the structs.
 	if !reflect.DeepEqual(loadedConfig, expectedConfig) {
 		t.Errorf("Loaded config does not match expected config.\nGot:  %+v\nWant: %+v", loadedConfig, expectedConfig)
+	}
+}
+
+func TestPaginationMinPageSize(t *testing.T) {
+	for _, tc := range []struct {
+		configured int
+		want       int
+	}{
+		{0, 40},
+		{-1, 40},
+		{25, 25},
+		{80, 80},
+	} {
+		cfg := &Config{PaginationMinPageSize: tc.configured}
+		if got := cfg.GetPaginationMinPageSize(); got != tc.want {
+			t.Fatalf("configured %d: got %d, want %d", tc.configured, got, tc.want)
+		}
 	}
 }
 

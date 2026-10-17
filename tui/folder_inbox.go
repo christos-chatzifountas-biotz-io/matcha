@@ -1142,6 +1142,11 @@ func (m *FolderInbox) ContinueUnreadFetch() tea.Cmd {
 	return m.wrapInboxCmd(m.inbox.continueUnreadFetch())
 }
 
+// PaginationPageSize returns the page size for this folder's inbox pane.
+func (m *FolderInbox) PaginationPageSize() uint32 {
+	return m.inbox.PaginationPageSize()
+}
+
 // GetCurrentFolder returns the currently selected folder name.
 func (m *FolderInbox) GetCurrentFolder() string {
 	return m.currentFolder

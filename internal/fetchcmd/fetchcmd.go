@@ -183,8 +183,8 @@ func FetchFoldersCmd(cfg *config.Config) tea.Cmd {
 	}
 }
 
-// FetchFolderEmailsCmd fetches emails for a single folder across all accounts.
-func FetchFolderEmailsCmd(cfg *config.Config, folderName string) tea.Cmd {
+// FetchFolderEmailsCmd fetches the first page of a folder across all accounts.
+func FetchFolderEmailsCmd(cfg *config.Config, folderName string, limit uint32) tea.Cmd {
 	return func() tea.Msg {
 		emailsByAccount := make(map[string][]fetcher.Email)
 		var mu sync.Mutex
@@ -194,7 +194,7 @@ func FetchFolderEmailsCmd(cfg *config.Config, folderName string) tea.Cmd {
 			wg.Add(1)
 			go func(acc config.Account) {
 				defer wg.Done()
-				emails, err := fetcher.FetchFolderEmails(&acc, folderName, InitialEmailLimit, 0)
+				emails, err := fetcher.FetchFolderEmails(&acc, folderName, limit, 0)
 				if err != nil {
 					return
 				}

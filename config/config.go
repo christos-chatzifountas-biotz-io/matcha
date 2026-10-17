@@ -151,6 +151,7 @@ type Config struct {
 	DateFormat              string        `json:"date_format,omitempty"`
 	Language                string        `json:"language,omitempty"` // Language code (e.g., "en", "es", "de")
 	BodyCacheThresholdMB    int           `json:"body_cache_threshold_mb,omitempty"`
+	PaginationMinPageSize   int           `json:"pagination_min_page_size,omitempty"`
 	UndoDelaySeconds        int           `json:"undo_delay_seconds,omitempty"`
 	// PluginSettings stores user-configurable values for installed plugins,
 	// keyed by plugin name then setting key. Values are JSON-native types
@@ -162,6 +163,18 @@ type Config struct {
 	MouseEnabled        *bool `json:"mouse_enabled,omitempty"`
 	ShowOriginalOnReply bool  `json:"show_original_on_reply,omitempty"`
 	ShowCcBccByDefault  bool  `json:"show_cc_bcc_by_default,omitempty"`
+}
+
+// DefaultPaginationMinPageSize is the page size floor when the setting is absent.
+const DefaultPaginationMinPageSize = 40
+
+// GetPaginationMinPageSize returns the minimum number of messages fetched per
+// page. The actual page size also grows with the inbox pane height.
+func (c *Config) GetPaginationMinPageSize() int {
+	if c == nil || c.PaginationMinPageSize <= 0 {
+		return DefaultPaginationMinPageSize
+	}
+	return c.PaginationMinPageSize
 }
 
 // GetSplitPaneOrientation returns the configured split pane orientation,
@@ -566,6 +579,7 @@ type secureDiskConfig struct {
 	MailingLists            []MailingList                     `json:"mailing_lists,omitempty"`
 	DateFormat              string                            `json:"date_format,omitempty"`
 	Language                string                            `json:"language,omitempty"`
+	PaginationMinPageSize   int                               `json:"pagination_min_page_size,omitempty"`
 	PluginSettings          map[string]map[string]interface{} `json:"plugin_settings,omitempty"`
 	HasSeenSetupGuide       bool                              `json:"has_seen_setup_guide,omitempty"`
 	MouseEnabled            *bool                             `json:"mouse_enabled,omitempty"`
@@ -627,6 +641,7 @@ func SaveConfig(config *Config) error {
 			MailingLists:            config.MailingLists,
 			DateFormat:              config.DateFormat,
 			Language:                config.Language,
+			PaginationMinPageSize:   config.PaginationMinPageSize,
 			PluginSettings:          config.PluginSettings,
 			HasSeenSetupGuide:       config.HasSeenSetupGuide,
 			ShowOriginalOnReply:     config.ShowOriginalOnReply,
@@ -752,6 +767,7 @@ func LoadConfig() (*Config, error) {
 		DateFormat              string                            `json:"date_format,omitempty"`
 		Language                string                            `json:"language,omitempty"`
 		BodyCacheThresholdMB    int                               `json:"body_cache_threshold_mb,omitempty"`
+		PaginationMinPageSize   int                               `json:"pagination_min_page_size,omitempty"`
 		UndoDelaySeconds        int                               `json:"undo_delay_seconds,omitempty"`
 		PluginSettings          map[string]map[string]interface{} `json:"plugin_settings,omitempty"`
 		HasSeenSetupGuide       bool                              `json:"has_seen_setup_guide,omitempty"`
@@ -801,6 +817,7 @@ func LoadConfig() (*Config, error) {
 	config.DateFormat = raw.DateFormat
 	config.Language = raw.Language
 	config.BodyCacheThresholdMB = raw.BodyCacheThresholdMB
+	config.PaginationMinPageSize = raw.PaginationMinPageSize
 	config.UndoDelaySeconds = raw.UndoDelaySeconds
 	config.PluginSettings = raw.PluginSettings
 	config.HasSeenSetupGuide = raw.HasSeenSetupGuide

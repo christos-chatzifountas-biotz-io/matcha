@@ -641,6 +641,11 @@ func (m *Model) setFolderInboxDefaults() {
 	m.folderInbox.SetDefaultThreaded(m.config.EnableThreaded)
 	m.folderInbox.SetDisableImages(m.config.DisableImages)
 	m.folderInbox.SetSplitOrientation(m.config.GetSplitPaneOrientation())
+	m.folderInbox.GetInbox().SetPaginationMinPageSize(m.config.GetPaginationMinPageSize())
+}
+
+func (m *Model) fetchFolderEmailsCmd(folderName string) tea.Cmd {
+	return fetchcmd.FetchFolderEmailsCmd(m.config, folderName, m.folderInbox.PaginationPageSize())
 }
 
 func (m *Model) setFolderInboxEmails(folderName string, emails []fetcher.Email) {
@@ -666,7 +671,7 @@ func (m *Model) cacheFolderEmailBodies(folderName string, emails []fetcher.Email
 func (m *Model) refreshFolderEmails(folderName string) tea.Cmd {
 	delete(m.store.FolderEmails, folderName)
 	m.folderInbox.SetRefreshing(true)
-	return fetchcmd.FetchFolderEmailsCmd(m.config, folderName)
+	return m.fetchFolderEmailsCmd(folderName)
 }
 
 func (m *Model) fetchCurrentFolderEmails(folderName string) tea.Cmd {
@@ -677,10 +682,10 @@ func (m *Model) fetchCurrentFolderEmails(folderName string) tea.Cmd {
 	if diskCached := emailstore.LoadFolderEmailsFromCache(folderName); len(diskCached) > 0 {
 		m.store.FolderEmails[folderName] = diskCached
 		m.setFolderInboxEmails(folderName, diskCached)
-		return tea.Batch(fetchcmd.FetchFolderEmailsCmd(m.config, folderName), m.pluginNotifyCmd())
+		return tea.Batch(m.fetchFolderEmailsCmd(folderName), m.pluginNotifyCmd())
 	}
 	m.folderInbox.SetLoadingEmails(true)
-	return tea.Batch(fetchcmd.FetchFolderEmailsCmd(m.config, folderName), m.pluginNotifyCmd())
+	return tea.Batch(m.fetchFolderEmailsCmd(folderName), m.pluginNotifyCmd())
 }
 
 func (m *Model) updateDaemonSubscriptions(previousFolder, newFolder string) {
@@ -1081,7 +1086,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		batchCmds := []tea.Cmd{
 			m.current.Init(),
 			fetchcmd.FetchFoldersCmd(m.config),
-			fetchcmd.FetchFolderEmailsCmd(m.config, emailstore.FolderInbox),
+			m.fetchFolderEmailsCmd(emailstore.FolderInbox),
 			idledaemon.ListenForIdleUpdates(m.idleUpdates),
 		}
 		if m.service.IsDaemon() {
@@ -1242,7 +1247,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		if account == nil {
 			return m, nil
 		}
-		limit := uint32(emailstore.PaginationLimit)
+		limit := m.folderInbox.PaginationPageSize()
 		if msg.Limit > 0 {
 			limit = msg.Limit
 		}
@@ -1341,13 +1346,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		if m.folderInbox == nil {
 			return m, nil
 		}
-		return m, fetchcmd.FetchFolderEmailsCmd(m.config, m.folderInbox.GetCurrentFolder())
+		return m, m.fetchFolderEmailsCmd(m.folderInbox.GetCurrentFolder())
 
 	case tui.IdleNewMailMsg:
 		m.notifyNewMail(msg.AccountID, msg.FolderName)
 		if m.folderInbox != nil && m.folderInbox.GetCurrentFolder() == msg.FolderName {
 			return m, tea.Batch(
-				fetchcmd.FetchFolderEmailsCmd(m.config, msg.FolderName),
+				m.fetchFolderEmailsCmd(msg.FolderName),
 				idledaemon.ListenForIdleUpdates(m.idleUpdates),
 			)
 		}
@@ -1372,14 +1377,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 			if err := json.Unmarshal(msg.Event.Data, &ev); err == nil {
 				m.notifyNewMail(ev.AccountID, ev.Folder)
 				if m.folderInbox != nil && m.folderInbox.GetCurrentFolder() == ev.Folder {
-					daemonCmds = append(daemonCmds, fetchcmd.FetchFolderEmailsCmd(m.config, ev.Folder))
+					daemonCmds = append(daemonCmds, m.fetchFolderEmailsCmd(ev.Folder))
 				}
 			}
 		case daemonrpc.EventSyncComplete:
 			var ev daemonrpc.SyncCompleteEvent
 			if err := json.Unmarshal(msg.Event.Data, &ev); err == nil {
 				if m.folderInbox != nil && m.folderInbox.GetCurrentFolder() == ev.Folder {
-					daemonCmds = append(daemonCmds, fetchcmd.FetchFolderEmailsCmd(m.config, ev.Folder))
+					daemonCmds = append(daemonCmds, m.fetchFolderEmailsCmd(ev.Folder))
 				}
 			}
 		}
@@ -1433,7 +1438,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		if account == nil {
 			return m, nil
 		}
-		limit := uint32(emailstore.PaginationLimit)
+		limit := uint32(m.config.GetPaginationMinPageSize())
+		if m.folderInbox != nil {
+			limit = m.folderInbox.PaginationPageSize()
+		}
 		if msg.Limit > 0 {
 			limit = msg.Limit
 		}

@@ -9,45 +9,48 @@ import (
 )
 
 func TestFolderInboxUnreadOnlyFetchesCurrentFolder(t *testing.T) {
+	const folder = "UnreadTestFolder"
 	accounts := []config.Account{{ID: "a", FetchEmail: "a@example.com"}, {ID: "b", FetchEmail: "b@example.com"}}
-	fi := NewFolderInbox([]string{"Archive"}, accounts)
+	fi := NewFolderInbox([]string{folder}, accounts)
 	fi.SetEmails([]fetcher.Email{{UID: 1, AccountID: "a", IsRead: true}}, accounts)
 	_, cmd := fi.Update(tea.KeyPressMsg{Code: 'U', Text: "U"})
 	if cmd == nil {
 		t.Fatal("unread-only filter should request another page")
 	}
 	first, ok := cmd().(FetchFolderMoreEmailsMsg)
-	if !ok || first.FolderName != "Archive" || first.AccountID != "a" {
-		t.Fatalf("first request = %#v, want Archive in account a", first)
+	if !ok || first.FolderName != folder || first.AccountID != "a" {
+		t.Fatalf("first request = %#v, want current folder in account a", first)
 	}
-	_, cmd = fi.Update(FolderEmailsAppendedMsg{FolderName: "Archive", AccountID: "a"})
+	_, cmd = fi.Update(FolderEmailsAppendedMsg{FolderName: folder, AccountID: "a"})
 	if cmd == nil {
 		t.Fatal("exhausting account a should fetch account b")
 	}
 	second, ok := cmd().(FetchFolderMoreEmailsMsg)
-	if !ok || second.FolderName != "Archive" || second.AccountID != "b" {
-		t.Fatalf("second request = %#v, want Archive in account b", second)
+	if !ok || second.FolderName != folder || second.AccountID != "b" {
+		t.Fatalf("second request = %#v, want current folder in account b", second)
 	}
 }
 
 func TestFolderInboxWrapsBatchedCommandsWithOriginalFolder(t *testing.T) {
-	fi := NewFolderInbox([]string{"Archive", "Projects"}, nil)
+	const folder = "UnreadTestFolder"
+	fi := NewFolderInbox([]string{folder, "OtherTestFolder"}, nil)
+	fi.currentFolder = folder
 	cmd := fi.wrapInboxCmd(tea.Batch(
 		func() tea.Msg { return FetchMoreEmailsMsg{AccountID: "a", Offset: 20, Limit: 20} },
 		func() tea.Msg { return RequestRefreshMsg{} },
 	))
-	fi.currentFolder = "Projects"
+	fi.currentFolder = "OtherTestFolder"
 	batch, ok := cmd().(tea.BatchMsg)
 	if !ok || len(batch) != 2 {
 		t.Fatalf("wrapped command = %#v, want two batched commands", cmd())
 	}
 	fetch, ok := batch[0]().(FetchFolderMoreEmailsMsg)
-	if !ok || fetch.FolderName != "Archive" || fetch.AccountID != "a" || fetch.Offset != 20 {
-		t.Fatalf("batched fetch = %#v, want Archive request", fetch)
+	if !ok || fetch.FolderName != folder || fetch.AccountID != "a" || fetch.Offset != 20 {
+		t.Fatalf("batched fetch = %#v, want original folder request", fetch)
 	}
 	refresh, ok := batch[1]().(RequestRefreshMsg)
-	if !ok || refresh.FolderName != "Archive" {
-		t.Fatalf("batched refresh = %#v, want Archive request", refresh)
+	if !ok || refresh.FolderName != folder {
+		t.Fatalf("batched refresh = %#v, want original folder request", refresh)
 	}
 }
 

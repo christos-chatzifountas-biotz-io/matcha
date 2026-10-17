@@ -540,11 +540,12 @@ func (m *Inbox) updateList() {
 
 func (m *Inbox) displayEmails() []fetcher.Email {
 	var emails []fetcher.Email
-	if m.searchActive {
+	switch {
+	case m.searchActive:
 		emails = m.filteredSearchResults()
-	} else if m.currentAccountID == "" {
+	case m.currentAccountID == "":
 		emails = m.allEmails
-	} else {
+	default:
 		emails = m.emailsByAccount[m.currentAccountID]
 	}
 	if !m.unreadOnly {

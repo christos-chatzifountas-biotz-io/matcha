@@ -703,11 +703,15 @@ func (m *Model) markEmailReadAndQueue(accountID string, uid uint32, suppress boo
 		return nil
 	}
 	m.store.MarkEmailAsReadInStores(uid, accountID)
+	var listCmd tea.Cmd
+	if m.folderInbox != nil {
+		listCmd = m.folderInbox.MarkEmailAsRead(uid, accountID)
+	}
 	account := m.config.GetAccountByID(accountID)
 	if account != nil {
-		return fetchcmd.MarkEmailAsReadCmd(account, uid, accountID, m.folderName())
+		return tea.Batch(listCmd, fetchcmd.MarkEmailAsReadCmd(account, uid, accountID, m.folderName()))
 	}
-	return nil
+	return listCmd
 }
 
 func (m *Model) maybeYubiKeyNotification(accountID string, attachments []fetcher.Attachment) tea.Cmd {
@@ -1832,11 +1836,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		var markReadCmd tea.Cmd
 		pluginSuppressed := m.plugins != nil && m.plugins.TakeAutoReadSuppressed()
 		if !email.IsRead && !pluginSuppressed {
-			m.store.MarkEmailAsReadInStores(msg.UID, msg.AccountID)
-			account := m.config.GetAccountByID(msg.AccountID)
-			if account != nil {
-				markReadCmd = fetchcmd.MarkEmailAsReadCmd(account, msg.UID, msg.AccountID, m.folderName())
-			}
+			markReadCmd = m.markEmailReadAndQueue(msg.AccountID, msg.UID, false)
 		}
 		emailIndex := m.store.GetEmailIndex(msg.UID, msg.AccountID)
 		emailView := tui.NewEmailView(*email, emailIndex, m.width, m.height, msg.Mailbox, m.config.DisableImages)

@@ -1112,6 +1112,13 @@ func (m *FolderInbox) SetEmails(emails []fetcher.Email, accounts []config.Accoun
 	m.inbox.SetEmails(emails, accounts)
 }
 
+// MarkEmailAsRead updates the visible list and fills the unread-only view if
+// reading this message left too few rows.
+func (m *FolderInbox) MarkEmailAsRead(uid uint32, accountID string) tea.Cmd {
+	m.inbox.MarkEmailAsRead(uid, accountID)
+	return m.wrapInboxCmd(m.inbox.continueUnreadFetch())
+}
+
 // GetCurrentFolder returns the currently selected folder name.
 func (m *FolderInbox) GetCurrentFolder() string {
 	return m.currentFolder

@@ -31,6 +31,27 @@ func TestFolderInboxUnreadOnlyFetchesCurrentFolder(t *testing.T) {
 	}
 }
 
+func TestFolderInboxReadingMessageRefillsUnreadView(t *testing.T) {
+	const folder = "UnreadTestFolder"
+	accounts := []config.Account{{ID: "a", FetchEmail: "a@example.com"}}
+	fi := NewFolderInbox([]string{folder}, accounts)
+	fi.SetEmails([]fetcher.Email{{UID: 7, AccountID: "a", Subject: "unread"}}, accounts)
+	fi.inbox.unreadOnly = true
+	fi.inbox.updateList()
+
+	cmd := fi.MarkEmailAsRead(7, "a")
+	if got := len(fi.inbox.list.Items()); got != 0 {
+		t.Fatalf("read message remains in unread view: %d items", got)
+	}
+	if cmd == nil {
+		t.Fatal("reading the last visible message should fetch the next page")
+	}
+	fetch, ok := cmd().(FetchFolderMoreEmailsMsg)
+	if !ok || fetch.FolderName != folder || fetch.AccountID != "a" {
+		t.Fatalf("read-triggered fetch = %#v, want current folder and account", fetch)
+	}
+}
+
 func TestFolderInboxWrapsBatchedCommandsWithOriginalFolder(t *testing.T) {
 	const folder = "UnreadTestFolder"
 	fi := NewFolderInbox([]string{folder, "OtherTestFolder"}, nil)

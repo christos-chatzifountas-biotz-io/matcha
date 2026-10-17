@@ -341,6 +341,8 @@ type Inbox struct {
 	searchActive       bool
 	searchQuery        string
 	searchResults      []fetcher.Email
+	unreadOnly         bool
+	nextUnreadAccount  int
 	threaded           map[string]bool
 	expanded           map[string]bool
 	defaultThreaded    bool
@@ -537,13 +539,24 @@ func (m *Inbox) updateList() {
 }
 
 func (m *Inbox) displayEmails() []fetcher.Email {
+	var emails []fetcher.Email
 	if m.searchActive {
-		return m.filteredSearchResults()
+		emails = m.filteredSearchResults()
+	} else if m.currentAccountID == "" {
+		emails = m.allEmails
+	} else {
+		emails = m.emailsByAccount[m.currentAccountID]
 	}
-	if m.currentAccountID == "" {
-		return m.allEmails
+	if !m.unreadOnly {
+		return emails
 	}
-	return m.emailsByAccount[m.currentAccountID]
+	unread := make([]fetcher.Email, 0, len(emails))
+	for _, email := range emails {
+		if !email.IsRead {
+			unread = append(unread, email)
+		}
+	}
+	return unread
 }
 
 func (m *Inbox) filteredSearchResults() []fetcher.Email {
@@ -800,6 +813,9 @@ func (m *Inbox) getTitle() string {
 	if m.isThreaded() {
 		title += " (threaded)"
 	}
+	if m.unreadOnly {
+		title += " (unread only)"
+	}
 	if m.pluginStatus != "" {
 		title += " (" + m.pluginStatus + ")"
 	}
@@ -872,6 +888,27 @@ func (m *Inbox) toggleThreadedKey() string {
 		return config.Keybinds.Inbox.ToggleThreaded
 	}
 	return "T"
+}
+
+func (m *Inbox) toggleUnreadOnlyKey() string {
+	if config.Keybinds.Inbox.ToggleUnreadOnly != "" {
+		return config.Keybinds.Inbox.ToggleUnreadOnly
+	}
+	return "U"
+}
+
+// continueUnreadFetch fills an unread-only view from subsequent pages when
+// the loaded messages do not provide enough visible rows.
+func (m *Inbox) continueUnreadFetch() tea.Cmd {
+	if m.unreadOnly && m.shouldFetchMore() {
+		cmds := m.fetchMoreCmds()
+		if len(cmds) > 0 {
+			m.isFetching = true
+			m.list.Title = m.getTitle()
+			return tea.Batch(cmds...)
+		}
+	}
+	return nil
 }
 
 func (m *Inbox) Init() tea.Cmd {
@@ -958,6 +995,13 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 			m.toggleThreaded()
 			m.updateList()
 			return m, nil
+		case m.toggleUnreadOnlyKey():
+			m.unreadOnly = !m.unreadOnly
+			m.visualMode = false
+			m.selectedUIDs = make(map[uint32]string)
+			m.selectionOrder = nil
+			m.updateList()
+			return m, m.continueUnreadFetch()
 		case kb.Inbox.VisualMode:
 			if !m.visualMode {
 				// Enter visual mode
@@ -1016,7 +1060,7 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 				m.selectedUIDs = make(map[uint32]string)
 				m.selectionOrder = []uint32{}
 				m.updateList()
-				return m, nil
+				return m, m.continueUnreadFetch()
 			}
 		case keyRight, kb.Inbox.NextTab:
 			if len(m.tabs) > 1 {
@@ -1030,7 +1074,7 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 				m.selectedUIDs = make(map[uint32]string)
 				m.selectionOrder = []uint32{}
 				m.updateList()
-				return m, nil
+				return m, m.continueUnreadFetch()
 			}
 		case kb.Inbox.Delete:
 			if m.visualMode && len(m.selectedUIDs) > 0 {
@@ -1138,6 +1182,9 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 			return m, m.searchOverlay.Update(msg, m.mailbox, m.currentAccountID)
 		}
 		if m.shouldFetchMore() {
+			if m.unreadOnly {
+				return m, m.continueUnreadFetch()
+			}
 			return m, tea.Batch(m.fetchMoreCmds()...)
 		}
 		return m, nil
@@ -1176,7 +1223,7 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 				m.noMoreByAccount = make(map[string]bool)
 			}
 			m.noMoreByAccount[msg.AccountID] = true
-			return m, nil
+			return m, m.continueUnreadFetch()
 		}
 
 		// Add emails to the appropriate account
@@ -1187,7 +1234,7 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		m.emailCountByAcct[msg.AccountID] = len(m.emailsByAccount[msg.AccountID])
 
 		m.updateList()
-		return m, nil
+		return m, m.continueUnreadFetch()
 
 	case RefreshingEmailsMsg:
 		if msg.Mailbox != m.mailbox {
@@ -1214,7 +1261,11 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 	cmds = append(cmds, cmd)
 
 	if m.shouldFetchMore() {
-		cmds = append(cmds, m.fetchMoreCmds()...)
+		if m.unreadOnly {
+			cmds = append(cmds, m.continueUnreadFetch())
+		} else {
+			cmds = append(cmds, m.fetchMoreCmds()...)
+		}
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -1229,7 +1280,7 @@ func (m *Inbox) shouldFetchMore() bool {
 	if m.allAccountsExhausted() {
 		return false
 	}
-	if len(m.list.Items()) == 0 {
+	if len(m.list.Items()) == 0 && !m.unreadOnly {
 		return false
 	}
 	if m.list.FilterState() == list.Filtering {
@@ -1265,6 +1316,21 @@ func (m *Inbox) fetchMoreCmds() []tea.Cmd {
 
 	if m.currentAccountID == "" {
 		if len(m.accounts) == 0 {
+			return nil
+		}
+		if m.unreadOnly {
+			for step := range len(m.accounts) {
+				i := (m.nextUnreadAccount + step) % len(m.accounts)
+				accountID := m.accounts[i].ID
+				if m.noMoreByAccount[accountID] {
+					continue
+				}
+				m.nextUnreadAccount = (i + 1) % len(m.accounts)
+				offset := uint32(len(m.emailsByAccount[accountID]))
+				return []tea.Cmd{func() tea.Msg {
+					return FetchMoreEmailsMsg{Offset: offset, AccountID: accountID, Mailbox: m.mailbox, Limit: limit}
+				}}
+			}
 			return nil
 		}
 		for _, acc := range m.accounts {

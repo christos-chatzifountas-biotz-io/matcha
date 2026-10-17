@@ -160,6 +160,57 @@ func TestInboxSearchResultsFilterByActiveAccountTab(t *testing.T) {
 	}
 }
 
+func TestInboxUnreadOnlyFiltersCurrentAccountAndUpdatesAfterRead(t *testing.T) {
+	accounts := []config.Account{{ID: "a", FetchEmail: "a@example.com"}, {ID: "b", FetchEmail: "b@example.com"}}
+	emails := []fetcher.Email{
+		{UID: 1, AccountID: "a", Subject: "A read", IsRead: true},
+		{UID: 2, AccountID: "a", Subject: "A unread"},
+		{UID: 3, AccountID: "b", Subject: "B unread"},
+	}
+	inbox := NewInbox(emails, accounts)
+	inbox.Update(tea.KeyPressMsg{Code: 'U', Text: "U"})
+	if got := len(inbox.list.Items()); got != 2 {
+		t.Fatalf("ALL unread view has %d items, want 2", got)
+	}
+	inbox.Update(tea.KeyPressMsg{Code: tea.KeyRight, Text: "right"})
+	if got := len(inbox.list.Items()); got != 1 {
+		t.Fatalf("account A unread view has %d items, want 1", got)
+	}
+	inbox.MarkEmailAsRead(2, "a")
+	if got := len(inbox.list.Items()); got != 0 {
+		t.Fatalf("read message remained in unread view: %d items", got)
+	}
+	inbox.Update(tea.KeyPressMsg{Code: 'U', Text: "U"})
+	if got := len(inbox.list.Items()); got != 2 {
+		t.Fatalf("account A full view has %d items, want 2", got)
+	}
+}
+
+func TestInboxUnreadOnlyPaginatesPastReadMessages(t *testing.T) {
+	accounts := []config.Account{{ID: "a", FetchEmail: "a@example.com"}, {ID: "b", FetchEmail: "b@example.com"}}
+	inbox := NewInbox([]fetcher.Email{{UID: 1, AccountID: "a", IsRead: true}}, accounts)
+	_, cmd := inbox.Update(tea.KeyPressMsg{Code: 'U', Text: "U"})
+	if cmd == nil {
+		t.Fatal("empty unread view should fetch another page")
+	}
+	first, ok := cmd().(FetchMoreEmailsMsg)
+	if !ok || first.AccountID != "a" {
+		t.Fatalf("first unread page request = %#v, want account a", first)
+	}
+	_, cmd = inbox.Update(EmailsAppendedMsg{Mailbox: MailboxInbox, AccountID: "a"})
+	if cmd == nil {
+		t.Fatal("exhausting account a should continue with account b")
+	}
+	second, ok := cmd().(FetchMoreEmailsMsg)
+	if !ok || second.AccountID != "b" {
+		t.Fatalf("second unread page request = %#v, want account b", second)
+	}
+	inbox.Update(EmailsAppendedMsg{Mailbox: MailboxInbox, AccountID: "b", Emails: []fetcher.Email{{UID: 2, AccountID: "b", Subject: "unread"}}})
+	if got := len(inbox.list.Items()); got != 1 {
+		t.Fatalf("unread page did not appear: %d items", got)
+	}
+}
+
 func TestInboxAllAccountsDedupesSharedMailboxByMessageID(t *testing.T) {
 	accounts := []config.Account{
 		{ID: "account-1", Email: "mail.example.com", FetchEmail: "edu@andrinoff.com"},

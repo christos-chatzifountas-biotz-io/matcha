@@ -8,6 +8,49 @@ import (
 	"github.com/floatpane/matcha/fetcher"
 )
 
+func TestFolderInboxUnreadOnlyFetchesCurrentFolder(t *testing.T) {
+	accounts := []config.Account{{ID: "a", FetchEmail: "a@example.com"}, {ID: "b", FetchEmail: "b@example.com"}}
+	fi := NewFolderInbox([]string{"Archive"}, accounts)
+	fi.SetEmails([]fetcher.Email{{UID: 1, AccountID: "a", IsRead: true}}, accounts)
+	_, cmd := fi.Update(tea.KeyPressMsg{Code: 'U', Text: "U"})
+	if cmd == nil {
+		t.Fatal("unread-only filter should request another page")
+	}
+	first, ok := cmd().(FetchFolderMoreEmailsMsg)
+	if !ok || first.FolderName != "Archive" || first.AccountID != "a" {
+		t.Fatalf("first request = %#v, want Archive in account a", first)
+	}
+	_, cmd = fi.Update(FolderEmailsAppendedMsg{FolderName: "Archive", AccountID: "a"})
+	if cmd == nil {
+		t.Fatal("exhausting account a should fetch account b")
+	}
+	second, ok := cmd().(FetchFolderMoreEmailsMsg)
+	if !ok || second.FolderName != "Archive" || second.AccountID != "b" {
+		t.Fatalf("second request = %#v, want Archive in account b", second)
+	}
+}
+
+func TestFolderInboxWrapsBatchedCommandsWithOriginalFolder(t *testing.T) {
+	fi := NewFolderInbox([]string{"Archive", "Projects"}, nil)
+	cmd := fi.wrapInboxCmd(tea.Batch(
+		func() tea.Msg { return FetchMoreEmailsMsg{AccountID: "a", Offset: 20, Limit: 20} },
+		func() tea.Msg { return RequestRefreshMsg{} },
+	))
+	fi.currentFolder = "Projects"
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) != 2 {
+		t.Fatalf("wrapped command = %#v, want two batched commands", cmd())
+	}
+	fetch, ok := batch[0]().(FetchFolderMoreEmailsMsg)
+	if !ok || fetch.FolderName != "Archive" || fetch.AccountID != "a" || fetch.Offset != 20 {
+		t.Fatalf("batched fetch = %#v, want Archive request", fetch)
+	}
+	refresh, ok := batch[1]().(RequestRefreshMsg)
+	if !ok || refresh.FolderName != "Archive" {
+		t.Fatalf("batched refresh = %#v, want Archive request", refresh)
+	}
+}
+
 // TestFolderInboxSplitPreviewRendersSearchHit covers the case Lea reported on
 // PR #1186: opening a search result in split-pane mode used to silently drop
 // the keypress because the email was not in m.inbox.allEmails. After the fix

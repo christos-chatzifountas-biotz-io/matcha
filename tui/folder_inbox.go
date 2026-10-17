@@ -454,7 +454,7 @@ func (m *FolderInbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocycl
 		m.inbox.isRefreshing = false
 		m.inbox.SetEmails(msg.Emails, m.accounts)
 		m.inbox.SetFolderName(msg.FolderName)
-		return m, nil
+		return m, m.wrapInboxCmd(m.inbox.continueUnreadFetch())
 
 	case FolderEmailsAppendedMsg:
 		if msg.FolderName != m.currentFolder {
@@ -467,7 +467,7 @@ func (m *FolderInbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocycl
 				m.inbox.noMoreByAccount = make(map[string]bool)
 			}
 			m.inbox.noMoreByAccount[msg.AccountID] = true
-			return m, nil
+			return m, m.wrapInboxCmd(m.inbox.continueUnreadFetch())
 		}
 		for _, email := range msg.Emails {
 			m.inbox.emailsByAccount[email.AccountID] = append(m.inbox.emailsByAccount[email.AccountID], email)
@@ -475,7 +475,7 @@ func (m *FolderInbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocycl
 		}
 		m.inbox.emailCountByAcct[msg.AccountID] = len(m.inbox.emailsByAccount[msg.AccountID])
 		m.inbox.updateList()
-		return m, nil
+		return m, m.wrapInboxCmd(m.inbox.continueUnreadFetch())
 
 	case EmailMovedMsg:
 		if msg.Err != nil {
@@ -550,21 +550,36 @@ func (m *FolderInbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocycl
 
 // wrapInboxCmd intercepts messages from the inbox and adds folder context.
 func (m *FolderInbox) wrapInboxCmd(cmd tea.Cmd) tea.Cmd {
+	return m.wrapInboxCmdForFolder(cmd, m.currentFolder)
+}
+
+func (m *FolderInbox) wrapInboxCmdForFolder(cmd tea.Cmd, folderName string) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
 	return func() tea.Msg {
 		msg := cmd()
 		switch inner := msg.(type) {
+		case tea.BatchMsg:
+			wrapped := make(tea.BatchMsg, 0, len(inner))
+			for _, nested := range inner {
+				if nested != nil {
+					wrapped = append(wrapped, m.wrapInboxCmdForFolder(nested, folderName))
+				}
+			}
+			return wrapped
 		case FetchMoreEmailsMsg:
 			return FetchFolderMoreEmailsMsg{
 				Offset:     inner.Offset,
 				AccountID:  inner.AccountID,
-				FolderName: m.currentFolder,
+				FolderName: folderName,
 				Limit:      inner.Limit,
 			}
 		case RequestRefreshMsg:
-			inner.FolderName = m.currentFolder
+			inner.FolderName = folderName
 			return inner
 		case SearchRequestedMsg:
-			inner.FolderName = m.currentFolder
+			inner.FolderName = folderName
 			return inner
 		}
 		return msg

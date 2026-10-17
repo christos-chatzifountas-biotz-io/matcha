@@ -53,7 +53,7 @@ Configuration is stored in `~/.config/matcha/config.json`.
   "disable_spell_suggestions": false,
   "show_cc_bcc_by_default": true,
   "body_cache_threshold_mb": 100,
-  "pagination_min_page_size": 40,
+  "pagination_page_size": 40,
   "undo_delay_seconds": 5
 }
 ```
@@ -74,7 +74,7 @@ Configuration is stored in `~/.config/matcha/config.json`.
 
 `body_cache_threshold_mb` sets the maximum size (in megabytes) for the local email body cache. When this limit is reached, least recently accessed cached emails are evicted across all folders to make room for new ones. Defaults to `100` MB if not specified.
 
-`pagination_min_page_size` sets the minimum number of messages fetched per account for each folder page. Matcha uses the larger of this value and the inbox pane height, so page size grows with a taller terminal. It defaults to `40` when omitted. The setting applies to the first folder fetch and to later pages. The visible pager fills the inbox pane after reserving space for tabs and status lines, so its on-screen row count depends on terminal height.
+`pagination_page_size` accepts a positive number, `"height"`, or a fraction such as `"0.5*height"`. A number caps the messages shown per page and fetched per account at that value; a shorter inbox pane shows and fetches fewer. `"height"` fills the available pane, while `"0.5*height"` uses half the pane height, rounded down. Fractions must be greater than `0` and at most `1`. The default is `40`. Tabs and status lines reserve some rows, so a full-height page displays fewer messages than the pane's total height. This setting applies to the first folder fetch and later pages.
 
 `undo_delay_seconds` sets the delay (in seconds) before a sent email is actually delivered, giving you a chance to cancel mistakes. During this window, a countdown shows "Sending in Xs... (u to undo)". Pressing the configured undo key cancels the send. After the delay expires, the email is transmitted and cannot be undone. Set to `0` to send immediately with no undo window. Defaults to `5` seconds if not specified.
 

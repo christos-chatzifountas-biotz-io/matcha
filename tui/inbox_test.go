@@ -536,18 +536,18 @@ func TestFetchMoreTriggeredAtListEnd(t *testing.T) {
 		t.Fatalf("expected MailboxInbox, got %s", fetchMsg.Mailbox)
 	}
 
-	// A small pane uses the default minimum of 40 messages.
+	// Without a measured pane, use the default cap of 40 messages.
 	expectedLimit := uint32(40)
 	if fetchMsg.Limit != expectedLimit {
 		t.Fatalf("expected Limit %d, got %d", expectedLimit, fetchMsg.Limit)
 	}
 }
 
-func TestInboxPaginationPageSizeUsesPaneHeightAndConfiguredMinimum(t *testing.T) {
+func TestInboxPaginationPageSizeUsesConfiguredCapOrHeight(t *testing.T) {
 	inbox := NewInbox(nil, nil)
 	inbox.SetSize(80, 20)
-	if got := inbox.PaginationPageSize(); got != 40 {
-		t.Fatalf("small pane page size = %d, want 40", got)
+	if got := inbox.PaginationPageSize(); got != 20 {
+		t.Fatalf("small pane page size = %d, want 20", got)
 	}
 	if got := inbox.list.Paginator.PerPage; got <= 10 {
 		t.Fatalf("small pane shows %d messages per page, want more than half the pane", got)
@@ -556,18 +556,35 @@ func TestInboxPaginationPageSizeUsesPaneHeightAndConfiguredMinimum(t *testing.T)
 		t.Fatalf("small pane renders %d rows, want at most 20", got)
 	}
 	inbox.SetSize(80, 60)
-	if got := inbox.PaginationPageSize(); got != 60 {
-		t.Fatalf("tall pane page size = %d, want 60", got)
+	if got := inbox.PaginationPageSize(); got != 40 {
+		t.Fatalf("tall pane page size = %d, want 40", got)
 	}
-	if got := inbox.list.Paginator.PerPage; got < 40 {
-		t.Fatalf("tall pane shows %d messages per page, want at least 40", got)
+	if got := inbox.list.Paginator.PerPage; got != 40 {
+		t.Fatalf("tall pane shows %d messages per page, want 40", got)
 	}
 	if got := lipgloss.Height(inbox.View().Content); got > 60 {
 		t.Fatalf("tall pane renders %d rows, want at most 60", got)
 	}
-	inbox.SetPaginationMinPageSize(80)
-	if got := inbox.PaginationPageSize(); got != 80 {
-		t.Fatalf("configured minimum page size = %d, want 80", got)
+	inbox.SetPaginationPageSize(config.PaginationPageSize{HeightFactor: 1})
+	if got := inbox.PaginationPageSize(); got != 60 {
+		t.Fatalf("height mode page size = %d, want 60", got)
+	}
+	if got := inbox.list.Paginator.PerPage; got <= 40 {
+		t.Fatalf("height mode shows %d messages per page, want more than 40", got)
+	}
+	inbox.SetPaginationPageSize(config.PaginationPageSize{HeightFactor: 0.5})
+	if got := inbox.PaginationPageSize(); got != 30 {
+		t.Fatalf("half-height page size = %d, want 30", got)
+	}
+	if got := inbox.list.Paginator.PerPage; got != 30 {
+		t.Fatalf("half-height mode shows %d messages per page, want 30", got)
+	}
+	inbox.SetPaginationPageSize(config.PaginationPageSize{Limit: 25})
+	if got := inbox.PaginationPageSize(); got != 25 {
+		t.Fatalf("configured cap page size = %d, want 25", got)
+	}
+	if got := inbox.list.Paginator.PerPage; got != 25 {
+		t.Fatalf("configured cap shows %d messages per page, want 25", got)
 	}
 }
 

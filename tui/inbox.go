@@ -317,36 +317,36 @@ type AccountTab struct {
 }
 
 type Inbox struct {
-	list                  list.Model
-	isFetching            bool
-	isRefreshing          bool
-	emailsCount           int
-	totalEmailCount       int // actual number of emails (not threads) for status bar
-	accounts              []config.Account
-	emailsByAccount       map[string][]fetcher.Email
-	allEmails             []fetcher.Email
-	tabs                  []AccountTab
-	activeTabIndex        int
-	width                 int
-	height                int
-	currentAccountID      string // Empty means "ALL"
-	emailCountByAcct      map[string]int
-	mailbox               MailboxKind
-	folderName            string          // Custom folder name override for title
-	noMoreByAccount       map[string]bool // Per-account: true when pagination returns 0 results
-	extraShortHelpKeys    []key.Binding
-	pluginStatus          string // Persistent status text set by plugins
-	pluginKeyBindings     []PluginKeyBinding
-	searchOverlay         *SearchOverlay
-	searchActive          bool
-	searchQuery           string
-	searchResults         []fetcher.Email
-	unreadOnly            bool
-	nextUnreadAccount     int
-	threaded              map[string]bool
-	expanded              map[string]bool
-	defaultThreaded       bool
-	paginationMinPageSize int
+	list               list.Model
+	isFetching         bool
+	isRefreshing       bool
+	emailsCount        int
+	totalEmailCount    int // actual number of emails (not threads) for status bar
+	accounts           []config.Account
+	emailsByAccount    map[string][]fetcher.Email
+	allEmails          []fetcher.Email
+	tabs               []AccountTab
+	activeTabIndex     int
+	width              int
+	height             int
+	currentAccountID   string // Empty means "ALL"
+	emailCountByAcct   map[string]int
+	mailbox            MailboxKind
+	folderName         string          // Custom folder name override for title
+	noMoreByAccount    map[string]bool // Per-account: true when pagination returns 0 results
+	extraShortHelpKeys []key.Binding
+	pluginStatus       string // Persistent status text set by plugins
+	pluginKeyBindings  []PluginKeyBinding
+	searchOverlay      *SearchOverlay
+	searchActive       bool
+	searchQuery        string
+	searchResults      []fetcher.Email
+	unreadOnly         bool
+	nextUnreadAccount  int
+	threaded           map[string]bool
+	expanded           map[string]bool
+	defaultThreaded    bool
+	paginationPageSize config.PaginationPageSize
 
 	// Visual mode state (Vim-style multi-select)
 	visualMode     bool              // Whether visual mode is active
@@ -1363,19 +1363,15 @@ func (m *Inbox) fetchMoreCmds() []tea.Cmd {
 	return cmds
 }
 
-// SetPaginationMinPageSize configures the minimum number of messages fetched
-// for each page. A non-positive value uses the default.
-func (m *Inbox) SetPaginationMinPageSize(size int) {
-	m.paginationMinPageSize = size
+// SetPaginationPageSize configures a numeric page cap or a height-based size.
+func (m *Inbox) SetPaginationPageSize(size config.PaginationPageSize) {
+	m.paginationPageSize = size
+	m.resizeList()
 }
 
-// PaginationPageSize uses the inbox pane height, with a configurable minimum.
+// PaginationPageSize uses the configured cap or a fraction of the pane height.
 func (m *Inbox) PaginationPageSize() uint32 {
-	minimum := m.paginationMinPageSize
-	if minimum <= 0 {
-		minimum = config.DefaultPaginationMinPageSize
-	}
-	return uint32(max(minimum, m.height))
+	return m.paginationPageSize.LimitForHeight(m.height)
 }
 
 // resizeList gives the message pager the pane's available rows after the
@@ -1401,6 +1397,10 @@ func (m *Inbox) resizeList() {
 		available -= lipgloss.Height(inboxHelpStyle.Render(m.list.Help.View(m.list)))
 	}
 	m.list.SetHeight(max(1, available))
+	cap := int(m.PaginationPageSize())
+	if excess := m.list.Paginator.PerPage - cap; excess > 0 {
+		m.list.SetHeight(max(1, m.list.Height()-excess))
+	}
 }
 
 func (m *Inbox) View() tea.View {

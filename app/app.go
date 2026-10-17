@@ -641,7 +641,7 @@ func (m *Model) setFolderInboxDefaults() {
 	m.folderInbox.SetDefaultThreaded(m.config.EnableThreaded)
 	m.folderInbox.SetDisableImages(m.config.DisableImages)
 	m.folderInbox.SetSplitOrientation(m.config.GetSplitPaneOrientation())
-	m.folderInbox.GetInbox().SetPaginationMinPageSize(m.config.GetPaginationMinPageSize())
+	m.folderInbox.GetInbox().SetPaginationPageSize(m.config.GetPaginationPageSize())
 }
 
 func (m *Model) fetchFolderEmailsCmd(folderName string) tea.Cmd {
@@ -1438,7 +1438,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo
 		if account == nil {
 			return m, nil
 		}
-		limit := uint32(m.config.GetPaginationMinPageSize())
+		limit := m.config.GetPaginationPageSize().LimitForHeight(m.height)
 		if m.folderInbox != nil {
 			limit = m.folderInbox.PaginationPageSize()
 		}

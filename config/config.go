@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -133,26 +134,91 @@ type MailingList struct {
 	Addresses []string `json:"addresses"`
 }
 
+// PaginationPageSize accepts a numeric cap, "height", or a fraction of height.
+type PaginationPageSize struct {
+	Limit        int
+	HeightFactor float64
+}
+
+func (p *PaginationPageSize) UnmarshalJSON(data []byte) error {
+	var mode string
+	if err := json.Unmarshal(data, &mode); err == nil {
+		if mode == "height" {
+			*p = PaginationPageSize{HeightFactor: 1}
+			return nil
+		}
+		factorText, ok := strings.CutSuffix(strings.ReplaceAll(mode, " ", ""), "*height")
+		if !ok {
+			return fmt.Errorf("pagination_page_size must be a positive number, \"height\", or a fraction like \"0.5*height\"")
+		}
+		factor, err := strconv.ParseFloat(factorText, 64)
+		if err != nil || !(factor > 0 && factor <= 1) {
+			return fmt.Errorf("pagination_page_size height factor must be greater than 0 and at most 1")
+		}
+		*p = PaginationPageSize{HeightFactor: factor}
+		return nil
+	}
+
+	var limit int
+	if err := json.Unmarshal(data, &limit); err != nil || limit <= 0 {
+		return fmt.Errorf("pagination_page_size must be a positive number, \"height\", or a fraction like \"0.5*height\"")
+	}
+	*p = PaginationPageSize{Limit: limit}
+	return nil
+}
+
+func (p PaginationPageSize) MarshalJSON() ([]byte, error) {
+	if p.HeightFactor > 0 {
+		if p.HeightFactor == 1 {
+			return json.Marshal("height")
+		}
+		return json.Marshal(strconv.FormatFloat(p.HeightFactor, 'f', -1, 64) + "*height")
+	}
+	if p.Limit <= 0 {
+		return json.Marshal(DefaultPaginationPageSize)
+	}
+	return json.Marshal(p.Limit)
+}
+
+// LimitForHeight returns the fetch size for an inbox pane. An unknown height
+// uses the configured number, or the default for height-based options.
+func (p PaginationPageSize) LimitForHeight(height int) uint32 {
+	if p.HeightFactor > 0 {
+		if height > 0 {
+			return uint32(max(1, int(float64(height)*p.HeightFactor)))
+		}
+		return DefaultPaginationPageSize
+	}
+	limit := p.Limit
+	if limit <= 0 {
+		limit = DefaultPaginationPageSize
+	}
+	if height > 0 {
+		limit = min(limit, height)
+	}
+	return uint32(limit)
+}
+
 // Config stores the user's email configuration with multiple accounts.
 type Config struct {
-	Accounts                []Account     `json:"accounts"`
-	DisableImages           bool          `json:"disable_images,omitempty"`
-	HideTips                bool          `json:"hide_tips,omitempty"`
-	DisableNotifications    bool          `json:"disable_notifications,omitempty"`
-	DisableDaemon           bool          `json:"disable_daemon,omitempty"`
-	EnableSplitPane         bool          `json:"enable_split_pane,omitempty"`
-	SplitPaneOrientation    string        `json:"split_pane_orientation,omitempty"`
-	EnableThreaded          bool          `json:"enable_threaded,omitempty"`
-	EnableDetailedDates     bool          `json:"enable_detailed_dates,omitempty"`
-	DisableSpellcheck       bool          `json:"disable_spellcheck,omitempty"`
-	DisableSpellSuggestions bool          `json:"disable_spell_suggestions,omitempty"`
-	Theme                   string        `json:"theme,omitempty"`
-	MailingLists            []MailingList `json:"mailing_lists,omitempty"`
-	DateFormat              string        `json:"date_format,omitempty"`
-	Language                string        `json:"language,omitempty"` // Language code (e.g., "en", "es", "de")
-	BodyCacheThresholdMB    int           `json:"body_cache_threshold_mb,omitempty"`
-	PaginationMinPageSize   int           `json:"pagination_min_page_size,omitempty"`
-	UndoDelaySeconds        int           `json:"undo_delay_seconds,omitempty"`
+	Accounts                []Account           `json:"accounts"`
+	DisableImages           bool                `json:"disable_images,omitempty"`
+	HideTips                bool                `json:"hide_tips,omitempty"`
+	DisableNotifications    bool                `json:"disable_notifications,omitempty"`
+	DisableDaemon           bool                `json:"disable_daemon,omitempty"`
+	EnableSplitPane         bool                `json:"enable_split_pane,omitempty"`
+	SplitPaneOrientation    string              `json:"split_pane_orientation,omitempty"`
+	EnableThreaded          bool                `json:"enable_threaded,omitempty"`
+	EnableDetailedDates     bool                `json:"enable_detailed_dates,omitempty"`
+	DisableSpellcheck       bool                `json:"disable_spellcheck,omitempty"`
+	DisableSpellSuggestions bool                `json:"disable_spell_suggestions,omitempty"`
+	Theme                   string              `json:"theme,omitempty"`
+	MailingLists            []MailingList       `json:"mailing_lists,omitempty"`
+	DateFormat              string              `json:"date_format,omitempty"`
+	Language                string              `json:"language,omitempty"` // Language code (e.g., "en", "es", "de")
+	BodyCacheThresholdMB    int                 `json:"body_cache_threshold_mb,omitempty"`
+	PaginationPageSize      *PaginationPageSize `json:"pagination_page_size,omitempty"`
+	UndoDelaySeconds        int                 `json:"undo_delay_seconds,omitempty"`
 	// PluginSettings stores user-configurable values for installed plugins,
 	// keyed by plugin name then setting key. Values are JSON-native types
 	// (bool, float64, string) matching the plugin's declared schema.
@@ -165,16 +231,15 @@ type Config struct {
 	ShowCcBccByDefault  bool  `json:"show_cc_bcc_by_default,omitempty"`
 }
 
-// DefaultPaginationMinPageSize is the page size floor when the setting is absent.
-const DefaultPaginationMinPageSize = 40
+// DefaultPaginationPageSize is the numeric page cap when the setting is absent.
+const DefaultPaginationPageSize = 40
 
-// GetPaginationMinPageSize returns the minimum number of messages fetched per
-// page. The actual page size also grows with the inbox pane height.
-func (c *Config) GetPaginationMinPageSize() int {
-	if c == nil || c.PaginationMinPageSize <= 0 {
-		return DefaultPaginationMinPageSize
+// GetPaginationPageSize returns the configured page size or the default cap.
+func (c *Config) GetPaginationPageSize() PaginationPageSize {
+	if c == nil || c.PaginationPageSize == nil {
+		return PaginationPageSize{Limit: DefaultPaginationPageSize}
 	}
-	return c.PaginationMinPageSize
+	return *c.PaginationPageSize
 }
 
 // GetSplitPaneOrientation returns the configured split pane orientation,
@@ -579,7 +644,7 @@ type secureDiskConfig struct {
 	MailingLists            []MailingList                     `json:"mailing_lists,omitempty"`
 	DateFormat              string                            `json:"date_format,omitempty"`
 	Language                string                            `json:"language,omitempty"`
-	PaginationMinPageSize   int                               `json:"pagination_min_page_size,omitempty"`
+	PaginationPageSize      *PaginationPageSize               `json:"pagination_page_size,omitempty"`
 	PluginSettings          map[string]map[string]interface{} `json:"plugin_settings,omitempty"`
 	HasSeenSetupGuide       bool                              `json:"has_seen_setup_guide,omitempty"`
 	MouseEnabled            *bool                             `json:"mouse_enabled,omitempty"`
@@ -641,7 +706,7 @@ func SaveConfig(config *Config) error {
 			MailingLists:            config.MailingLists,
 			DateFormat:              config.DateFormat,
 			Language:                config.Language,
-			PaginationMinPageSize:   config.PaginationMinPageSize,
+			PaginationPageSize:      config.PaginationPageSize,
 			PluginSettings:          config.PluginSettings,
 			HasSeenSetupGuide:       config.HasSeenSetupGuide,
 			ShowOriginalOnReply:     config.ShowOriginalOnReply,
@@ -767,7 +832,7 @@ func LoadConfig() (*Config, error) {
 		DateFormat              string                            `json:"date_format,omitempty"`
 		Language                string                            `json:"language,omitempty"`
 		BodyCacheThresholdMB    int                               `json:"body_cache_threshold_mb,omitempty"`
-		PaginationMinPageSize   int                               `json:"pagination_min_page_size,omitempty"`
+		PaginationPageSize      *PaginationPageSize               `json:"pagination_page_size,omitempty"`
 		UndoDelaySeconds        int                               `json:"undo_delay_seconds,omitempty"`
 		PluginSettings          map[string]map[string]interface{} `json:"plugin_settings,omitempty"`
 		HasSeenSetupGuide       bool                              `json:"has_seen_setup_guide,omitempty"`
@@ -817,7 +882,7 @@ func LoadConfig() (*Config, error) {
 	config.DateFormat = raw.DateFormat
 	config.Language = raw.Language
 	config.BodyCacheThresholdMB = raw.BodyCacheThresholdMB
-	config.PaginationMinPageSize = raw.PaginationMinPageSize
+	config.PaginationPageSize = raw.PaginationPageSize
 	config.UndoDelaySeconds = raw.UndoDelaySeconds
 	config.PluginSettings = raw.PluginSettings
 	config.HasSeenSetupGuide = raw.HasSeenSetupGuide

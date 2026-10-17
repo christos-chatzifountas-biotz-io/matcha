@@ -2,11 +2,14 @@ package view
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"regexp"
 	"strings"
@@ -33,8 +36,21 @@ func TestRemoteImagesRequireOptInWhileInlineImagesRender(t *testing.T) {
 		_, _ = w.Write(pngData)
 	}))
 	defer server.Close()
+	previousClient := remoteImageClient
+	remoteImageClient = newRemoteImageClient(
+		func(_ context.Context, host string) ([]netip.Addr, error) {
+			if host != "images.example" {
+				return nil, fmt.Errorf("unexpected host %q", host)
+			}
+			return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+		},
+		func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+		},
+	)
+	t.Cleanup(func() { remoteImageClient = previousClient })
 
-	body := `<img src="cid:logo" alt="embedded"><img src="` + server.URL + `/pixel.png" alt="remote">`
+	body := `<img src="cid:logo" alt="embedded"><img src="http://images.example/pixel.png" alt="remote">`
 	inline := []InlineImage{{CID: "logo", Base64: pngBase64}}
 	style := lipgloss.NewStyle()
 	_, placements, err := ProcessBodyWithInline(body, BodyMIMETypeHTML, inline, style, style, style, false)

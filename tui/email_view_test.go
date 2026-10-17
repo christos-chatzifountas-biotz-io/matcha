@@ -62,18 +62,18 @@ func TestRemoteImageLoadingRunsOnlyInCommandAndIsReused(t *testing.T) {
 		t.Fatalf("resize while loading made %d requests", requests.Load())
 	}
 	result := cmd()
-	if requests.Load() != 1 {
-		t.Fatalf("background command made %d requests, want 1", requests.Load())
+	if requests.Load() != 0 {
+		t.Fatalf("background command fetched a local image: %d requests", requests.Load())
 	}
 	first.Update(result)
 	first.Update(tea.WindowSizeMsg{Width: 81, Height: 24})
-	if requests.Load() != 1 {
-		t.Fatalf("resize after loading made %d requests, want 1", requests.Load())
+	if requests.Load() != 0 {
+		t.Fatalf("resize after loading fetched a local image: %d requests", requests.Load())
 	}
 	first.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
 	first.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
-	if requests.Load() != 1 {
-		t.Fatalf("image toggle made %d requests, want 1", requests.Load())
+	if requests.Load() != 0 {
+		t.Fatalf("image toggle fetched a local image: %d requests", requests.Load())
 	}
 	second := NewEmailView(email, 1, 80, 24, MailboxInbox, false)
 	second.Update(result)

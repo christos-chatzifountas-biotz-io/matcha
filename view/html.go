@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/quotedprintable"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -17,7 +18,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/floatpane/matcha/clib"
 	"github.com/floatpane/matcha/internal/htmlsanitizer"
-	"github.com/floatpane/matcha/internal/httpclient"
 	"github.com/floatpane/matcha/internal/loglevel"
 	"github.com/floatpane/matcha/theme"
 	"github.com/floatpane/termimage"
@@ -385,31 +385,31 @@ func init() {
 	remoteImageCache = c
 }
 
-func fetchRemoteBase64(url string) string {
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+func fetchRemoteBase64(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || !validRemoteImageURL(parsed) {
 		return ""
 	}
 
 	// Check cache first
-	if cached, ok := remoteImageCache.Get(url); ok {
-		debugImageProtocol("remote cache hit url=%s", url)
+	if cached, ok := remoteImageCache.Get(rawURL); ok {
+		debugImageProtocol("remote cache hit url=%s", rawURL)
 		return cached
 	}
 
-	client := httpclient.New(httpclient.RemoteImageTimeout)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, nil)
 	if err != nil {
-		debugImageProtocol("remote request failed url=%s err=%v", url, err)
+		debugImageProtocol("remote request failed url=%s err=%v", rawURL, err)
 		return ""
 	}
-	resp, err := client.Do(req)
+	resp, err := remoteImageClient.Do(req)
 	if err != nil {
-		debugImageProtocol("remote fetch failed url=%s err=%v", url, err)
+		debugImageProtocol("remote fetch failed url=%s err=%v", rawURL, err)
 		return ""
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		debugImageProtocol("remote fetch non-200 url=%s status=%d", url, resp.StatusCode)
+		debugImageProtocol("remote fetch non-200 url=%s status=%d", rawURL, resp.StatusCode)
 		return ""
 	}
 	// Limit response body to 10 MB to prevent memory exhaustion from
@@ -417,19 +417,19 @@ func fetchRemoteBase64(url string) string {
 	const maxImageSize = 10 << 20 // 10 MB
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageSize))
 	if err != nil {
-		debugImageProtocol("remote fetch read error url=%s err=%v", url, err)
+		debugImageProtocol("remote fetch read error url=%s err=%v", rawURL, err)
 		return ""
 	}
 
 	result, ok := clib.DecodeToPNG(data)
 	if !ok {
-		debugImageProtocol("remote decode failed url=%s", url)
+		debugImageProtocol("remote decode failed url=%s", rawURL)
 		return ""
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(result.PNGData)
-	debugImageProtocol("remote fetch ok url=%s len=%d", url, len(encoded))
-	remoteImageCache.Add(url, encoded)
+	debugImageProtocol("remote fetch ok url=%s len=%d", rawURL, len(encoded))
+	remoteImageCache.Add(rawURL, encoded)
 	return encoded
 }
 

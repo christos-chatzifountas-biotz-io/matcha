@@ -57,6 +57,7 @@ func newTestPool(t *testing.T, idleTimeout time.Duration) (*clientPool[*fakePool
 	t.Helper()
 	d := &fakeDialer{}
 	p := newClientPool(d.dial, idleTimeout)
+	p.closed = (*fakePoolClient).isClosed
 	t.Cleanup(p.closeIdle)
 	return p, d
 }
@@ -355,5 +356,384 @@ func TestClientPoolDropsClientIdleTooLongByWallClock(t *testing.T) {
 	p.run(account, func(c *fakePoolClient) error { used = c.id; return nil }) //nolint:errcheck
 	if used != 2 || !d.client(0).isClosed() {
 		t.Fatalf("used client %d, first closed %t; a client unused past the timeout must not be reused", used, d.client(0).isClosed())
+	}
+}
+
+func TestClientPoolLimitsConcurrentOperations(t *testing.T) {
+	p, d := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	const callers = 9
+	type operation struct {
+		client *fakePoolClient
+		finish chan struct{}
+	}
+	entered := make(chan operation, callers)
+	errs := make(chan error, callers)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	var active atomic.Int32
+	var maximum atomic.Int32
+	for range callers {
+		go func() {
+			errs <- p.run(account, func(c *fakePoolClient) error {
+				n := active.Add(1)
+				for previous := maximum.Load(); n > previous; previous = maximum.Load() {
+					if maximum.CompareAndSwap(previous, n) {
+						break
+					}
+				}
+				op := operation{client: c, finish: make(chan struct{})}
+				entered <- op
+				select {
+				case <-op.finish:
+				case <-release:
+				}
+				active.Add(-1)
+				return nil
+			})
+		}()
+	}
+	first := make([]operation, 0, 3)
+	clients := make(map[*fakePoolClient]bool)
+	for range 3 {
+		select {
+		case op := <-entered:
+			first = append(first, op)
+			clients[op.client] = true
+		case <-time.After(2 * time.Second):
+			t.Fatal("three operations did not start")
+		}
+	}
+	if len(clients) != 3 {
+		t.Fatal("concurrent operations shared a client")
+	}
+	select {
+	case <-entered:
+		t.Fatal("a fourth operation started before a client was released")
+	case <-time.After(50 * time.Millisecond):
+	}
+	previous := first[0]
+	for range callers - 3 {
+		close(previous.finish)
+		select {
+		case next := <-entered:
+			if next.client != previous.client {
+				t.Error("waiting operation did not reuse the released client")
+			}
+			previous = next
+		case <-time.After(2 * time.Second):
+			t.Fatal("waiting operation did not start after release")
+		}
+	}
+	close(previous.finish)
+	close(first[1].finish)
+	close(first[2].finish)
+	for range callers {
+		select {
+		case err := <-errs:
+			if err != nil {
+				t.Errorf("run: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("waiting operation did not finish")
+		}
+	}
+	if maximum.Load() > 3 {
+		t.Errorf("maximum concurrent operations = %d, want at most 3", maximum.Load())
+	}
+	if d.count() > 3 {
+		t.Errorf("dialed %d clients, want waiting callers to reuse at most 3", d.count())
+	}
+}
+
+func TestClientPoolSharesServerLoginAcrossAccountIDs(t *testing.T) {
+	p, d := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	alias := *account
+	alias.ID = "another-account"
+	var first *fakePoolClient
+	if err := p.run(account, func(c *fakePoolClient) error { first = c; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.run(&alias, func(c *fakePoolClient) error {
+		if c != first {
+			t.Error("the same server login used a different client for another account ID")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if d.count() != 1 {
+		t.Errorf("dialed %d clients for one server login, want 1", d.count())
+	}
+}
+
+func TestClientPoolSeparatesServerLogins(t *testing.T) {
+	p, d := newTestPool(t, time.Hour)
+	base := testPoolAccount("a")
+	differentLogin := *base
+	differentLogin.Email = "other@example.com"
+	differentServer := *base
+	differentServer.IMAPServer = "other.example.com"
+	differentPort := *base
+	differentPort.IMAPPort = 143
+	for _, account := range []*config.Account{base, &differentLogin, &differentServer, &differentPort} {
+		if err := p.run(account, func(*fakePoolClient) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d.count() != 4 {
+		t.Errorf("dialed %d clients for four server logins, want 4", d.count())
+	}
+}
+
+type acquiredPoolClient struct {
+	client  *fakePoolClient
+	release func()
+	err     error
+}
+
+func acquireTestPoolClient(t *testing.T, p *clientPool[*fakePoolClient], account *config.Account) acquiredPoolClient {
+	t.Helper()
+	result := make(chan acquiredPoolClient, 1)
+	go func() {
+		c, release, err := p.acquire(account)
+		result <- acquiredPoolClient{client: c, release: release, err: err}
+	}()
+	select {
+	case got := <-result:
+		if got.release != nil {
+			got.release = sync.OnceFunc(got.release)
+			t.Cleanup(got.release)
+		}
+		return got
+	case <-time.After(2 * time.Second):
+		t.Fatal("client acquisition did not finish")
+		return acquiredPoolClient{}
+	}
+}
+
+func TestClientPoolAcquisitionSharesLimitAcrossAccountIDs(t *testing.T) {
+	p, d := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	alias := *account
+	alias.ID = "alias"
+	first := make([]acquiredPoolClient, 0, 3)
+	clients := make(map[*fakePoolClient]bool)
+	for range 3 {
+		got := acquireTestPoolClient(t, p, account)
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		first = append(first, got)
+		clients[got.client] = true
+	}
+	if len(clients) != 3 {
+		t.Fatal("concurrent acquisitions shared a client")
+	}
+	waiting := make(chan acquiredPoolClient, 1)
+	go func() {
+		c, release, err := p.acquire(&alias)
+		waiting <- acquiredPoolClient{client: c, release: release, err: err}
+	}()
+	other := acquireTestPoolClient(t, p, testPoolAccount("b"))
+	if other.err != nil {
+		t.Fatalf("another account could not progress: %v", other.err)
+	}
+	other.release()
+	select {
+	case got := <-waiting:
+		if got.release != nil {
+			got.release()
+		}
+		t.Fatal("another account ID bypassed the same login's operation limit")
+	case <-time.After(50 * time.Millisecond):
+	}
+	first[0].release()
+	select {
+	case got := <-waiting:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		defer got.release()
+		if got.client != first[0].client {
+			t.Error("waiting acquisition did not reuse the released client")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiting acquisition did not start after release")
+	}
+	if d.count() != 4 {
+		t.Errorf("dialed %d clients, want three for one login and one for the other", d.count())
+	}
+}
+
+func TestClientPoolRunSharesAcquisitionLimit(t *testing.T) {
+	p, _ := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	var first acquiredPoolClient
+	for i := range 3 {
+		got := acquireTestPoolClient(t, p, account)
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if i == 0 {
+			first = got
+		}
+	}
+	entered := make(chan *fakePoolClient, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- p.run(account, func(c *fakePoolClient) error { entered <- c; return nil })
+	}()
+	select {
+	case <-entered:
+		t.Fatal("run bypassed the slots held by direct acquisitions")
+	case <-time.After(50 * time.Millisecond):
+	}
+	first.release()
+	select {
+	case c := <-entered:
+		if c != first.client {
+			t.Error("run did not reuse the released client")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not start after a direct acquisition released its client")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not finish")
+	}
+}
+
+func TestClientPoolAcquisitionReplacesUnresponsiveIdleClient(t *testing.T) {
+	p, d := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	var checked atomic.Int32
+	p.answers = func(c *fakePoolClient) bool {
+		checked.Add(1)
+		return c.id != 1
+	}
+	first := acquireTestPoolClient(t, p, account)
+	if first.err != nil {
+		t.Fatal(first.err)
+	}
+	first.release()
+	second := acquireTestPoolClient(t, p, account)
+	if second.err != nil {
+		t.Fatal(second.err)
+	}
+	if second.client == first.client || !first.client.isClosed() || checked.Load() != 1 {
+		t.Fatalf("reused=%t, old closed=%t, NOOP checks=%d; want one check and a replacement", second.client == first.client, first.client.isClosed(), checked.Load())
+	}
+	second.release()
+	third := acquireTestPoolClient(t, p, account)
+	if third.err != nil {
+		t.Fatal(third.err)
+	}
+	if third.client != second.client || checked.Load() != 2 || d.count() != 2 {
+		t.Fatalf("dials=%d, NOOP checks=%d; want a healthy idle client reused after NOOP", d.count(), checked.Load())
+	}
+}
+
+func TestClientPoolAcquisitionDiscardsClosedClient(t *testing.T) {
+	p, d := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	for range 5 {
+		got := acquireTestPoolClient(t, p, account)
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		got.client.Close() //nolint:errcheck
+		got.release()
+		if p.idleCount(account) != 0 {
+			t.Fatal("release retained a closed client")
+		}
+	}
+	if d.count() != 5 {
+		t.Errorf("dialed %d clients, want one per closed acquisition", d.count())
+	}
+}
+
+func TestClientPoolReleasesSlotsAfterDialFailure(t *testing.T) {
+	p, _ := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	wantErr := errors.New("authentication failed")
+	p.dial = func(*config.Account) (*fakePoolClient, error) { return nil, wantErr }
+	for range 5 {
+		got := acquireTestPoolClient(t, p, account)
+		if !errors.Is(got.err, wantErr) || got.release != nil {
+			t.Fatalf("err=%v, release present=%t; want auth error and no borrowed client", got.err, got.release != nil)
+		}
+	}
+	dialer := &fakeDialer{}
+	p.dial = dialer.dial
+	got := acquireTestPoolClient(t, p, account)
+	if got.err != nil {
+		t.Fatalf("acquisition after failed auth: %v", got.err)
+	}
+}
+
+func TestClientPoolReleasesSlotsAfterRunFailure(t *testing.T) {
+	for _, dialFailure := range []bool{false, true} {
+		name := "operation"
+		if dialFailure {
+			name = "authentication"
+		}
+		t.Run(name, func(t *testing.T) {
+			p, _ := newTestPool(t, time.Hour)
+			account := testPoolAccount("a")
+			wantErr := errors.New("failed")
+			if dialFailure {
+				p.dial = func(*config.Account) (*fakePoolClient, error) { return nil, wantErr }
+			}
+			for range 5 {
+				done := make(chan error, 1)
+				go func() {
+					done <- p.run(account, func(*fakePoolClient) error { return wantErr })
+				}()
+				select {
+				case err := <-done:
+					if !errors.Is(err, wantErr) {
+						t.Fatalf("err=%v, want %v", err, wantErr)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("failed operation did not release its slot")
+				}
+			}
+		})
+	}
+}
+
+func TestClientPoolReleasesSlotsAfterNoopFailure(t *testing.T) {
+	p, _ := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	p.answers = func(*fakePoolClient) bool { return false }
+	for range 6 {
+		got := acquireTestPoolClient(t, p, account)
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		got.release()
+	}
+}
+
+func TestClientPoolKeepsClientWhenServerAnswersBad(t *testing.T) {
+	p, d := newTestPool(t, time.Hour)
+	account := testPoolAccount("a")
+	bad := &imap.Error{Type: imap.StatusResponseTypeBad, Text: "Command rejected"}
+	for range 2 {
+		calls := 0
+		err := p.run(account, func(*fakePoolClient) error { calls++; return bad })
+		if !errors.Is(err, bad) || calls != 1 {
+			t.Fatalf("err=%v after %d calls, want BAD reply without a retry", err, calls)
+		}
+	}
+	if d.count() != 1 || p.idleCount(account) != 1 || d.client(0).isClosed() {
+		t.Fatal("server BAD reply discarded a usable connection")
 	}
 }

@@ -13,7 +13,10 @@ import (
 	"github.com/floatpane/matcha/config"
 )
 
-// imapPoolMaxIdle is how many unused, logged-in clients are kept per account.
+// imapPoolMaxActive limits short operations for one server login.
+const imapPoolMaxActive = 3
+
+// imapPoolMaxIdle is how many unused, logged-in clients are kept per server login.
 const imapPoolMaxIdle = 2
 
 // imapPoolIdleTimeout is how long an unused client stays open before it is closed.
@@ -29,6 +32,14 @@ const imapPoolNoopTimeout = 5 * time.Second
 var imapPool = func() *clientPool[*imapclient.Client] {
 	p := newClientPool(connect, imapPoolIdleTimeout)
 	p.answers = answersNoop
+	p.closed = func(c *imapclient.Client) bool {
+		select {
+		case <-c.Closed():
+			return true
+		default:
+			return false
+		}
+	}
 	return p
 }()
 
@@ -47,14 +58,18 @@ func isServerReply(err error) bool {
 	return errors.As(err, &reply)
 }
 
+// acquireIMAPClient borrows an authenticated client for one short operation.
+// The caller must invoke release once, after all commands have finished.
+// Reused clients must answer NOOP first; caller operations are never retried.
+func acquireIMAPClient(account *config.Account) (*imapclient.Client, func(), error) {
+	return imapPool.acquire(account)
+}
+
 // withIMAPClient runs fn on an authenticated IMAP connection for account.
 //
-// The client is taken from the pool of unused clients for the account, or a
-// new one is dialed. Each caller gets its own client; fn must SELECT the
-// folder it needs and must leave the client usable. When fn succeeds the
-// client is returned to the pool. When fn fails on a client that came from the
-// pool, that client is closed and fn runs once more on a newly dialed client,
-// because servers drop connections that sat unused.
+// Each caller gets its own client and must SELECT the folder it needs.
+// A transport failure on a reused client retries fn once on a new client.
+// Server NO and BAD replies are returned without retrying.
 func withIMAPClient(account *config.Account, fn func(c *imapclient.Client) error) error {
 	return imapPool.run(account, fn)
 }
@@ -65,17 +80,19 @@ func CloseIMAPPool() {
 	imapPool.closeIdle()
 }
 
-// clientPool holds unused clients per account. C is *imapclient.Client in
-// production; tests use a fake client and a fake dial function.
+// clientPool holds unused clients and limits operations per server login.
+// C is *imapclient.Client in production; tests use a fake client and dialer.
 type clientPool[C io.Closer] struct {
 	dial        func(*config.Account) (C, error)
 	idleTimeout time.Duration
 	// answers, when set, checks that a pooled client still responds before
 	// it is reused.
 	answers func(C) bool
+	closed  func(C) bool
 
-	mu   sync.Mutex
-	idle map[string][]*idleClient[C] // oldest first
+	mu    sync.Mutex
+	idle  map[string][]*idleClient[C] // oldest first
+	slots map[string]chan struct{}
 }
 
 // idleClient is an unused client, when it was returned, and the timer that
@@ -92,43 +109,97 @@ func newClientPool[C io.Closer](dial func(*config.Account) (C, error), idleTimeo
 		dial:        dial,
 		idleTimeout: idleTimeout,
 		idle:        make(map[string][]*idleClient[C]),
+		slots:       make(map[string]chan struct{}),
 	}
 }
 
-// poolKey identifies the server login a client belongs to.
+// poolKey identifies the server login a client belongs to, not a config entry.
 func poolKey(account *config.Account) string {
-	return fmt.Sprintf("%s\x00%s\x00%d\x00%s", account.ID, account.GetIMAPServer(), account.GetIMAPPort(), account.Email)
+	return fmt.Sprintf("%s\x00%d\x00%s", account.GetIMAPServer(), account.GetIMAPPort(), account.Email)
+}
+
+// reserve waits for an operation slot without holding the pool lock.
+func (p *clientPool[C]) reserve(key string) chan struct{} {
+	p.mu.Lock()
+	slots := p.slots[key]
+	if slots == nil {
+		slots = make(chan struct{}, imapPoolMaxActive)
+		p.slots[key] = slots
+	}
+	p.mu.Unlock()
+	slots <- struct{}{}
+	return slots
+}
+
+// get takes a responsive idle client before dialing a new one. The caller
+// must hold an operation slot until the client is returned or closed.
+func (p *clientPool[C]) get(account *config.Account, key string) (C, bool, error) {
+	for {
+		c, ok := p.take(key)
+		if !ok {
+			c, err := p.dial(account)
+			return c, false, err
+		}
+		if (p.closed == nil || !p.closed(c)) && (p.answers == nil || p.answers(c)) {
+			return c, true, nil
+		}
+		c.Close() //nolint:errcheck
+	}
+}
+
+// keep returns usable clients to the pool and discards clients already closed.
+func (p *clientPool[C]) keep(key string, c C) {
+	if p.closed != nil && p.closed(c) {
+		c.Close() //nolint:errcheck
+		return
+	}
+	p.put(key, c)
+}
+
+func (p *clientPool[C]) acquire(account *config.Account) (C, func(), error) {
+	key := poolKey(account)
+	slots := p.reserve(key)
+	c, _, err := p.get(account, key)
+	if err != nil {
+		<-slots
+		return c, nil, err
+	}
+	return c, func() {
+		p.keep(key, c)
+		<-slots
+	}, nil
 }
 
 // run calls fn with a pooled or newly dialed client; see withIMAPClient.
 func (p *clientPool[C]) run(account *config.Account, fn func(C) error) error {
 	key := poolKey(account)
-
-	if c, ok := p.take(key); ok {
-		if p.answers == nil || p.answers(c) {
-			err := fn(c)
-			if err == nil || isServerReply(err) {
-				p.put(key, c)
-				return err
-			}
-		}
-		c.Close() //nolint:errcheck
-	}
-
-	c, err := p.dial(account)
+	slots := p.reserve(key)
+	defer func() { <-slots }()
+	c, reused, err := p.get(account, key)
 	if err != nil {
 		return err
 	}
-	if err := fn(c); err != nil {
-		if isServerReply(err) {
-			p.put(key, c)
-		} else {
-			c.Close() //nolint:errcheck
-		}
+	err = fn(c)
+	if err == nil || isServerReply(err) {
+		p.keep(key, c)
 		return err
 	}
-	p.put(key, c)
-	return nil
+	c.Close() //nolint:errcheck
+	if !reused {
+		return err
+	}
+
+	c, err = p.dial(account)
+	if err != nil {
+		return err
+	}
+	err = fn(c)
+	if err == nil || isServerReply(err) {
+		p.keep(key, c)
+	} else {
+		c.Close() //nolint:errcheck
+	}
+	return err
 }
 
 // take removes and returns the most recently returned unused client for key.

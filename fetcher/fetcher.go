@@ -517,6 +517,22 @@ func getMailboxByAttr(c *imapclient.Client, attr imap.MailboxAttr) (string, erro
 	return foundMailbox, nil
 }
 
+// resolveMailboxByAttr releases the discovery client before the caller starts
+// another operation, so convenience wrappers never hold two pool slots.
+func resolveMailboxByAttr(account *config.Account, attr imap.MailboxAttr, fallback string) (string, error) {
+	c, release, err := acquireIMAPClient(account)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+
+	mailbox, err := getMailboxByAttr(c, attr)
+	if err != nil {
+		return fallback, nil
+	}
+	return mailbox, nil
+}
+
 func buildDeliveryHeaderSection() *imap.FetchItemBodySection {
 	return &imap.FetchItemBodySection{
 		Specifier:    imap.PartSpecifierHeader,
@@ -541,11 +557,11 @@ func trimEmailsToLimit(emails []Email, limit uint32) []Email {
 }
 
 func fetchIMAPEmails(account *config.Account, mailbox string, limit, offset uint32) ([]Email, error) {
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	selectData, err := c.Select(mailbox, nil).Wait()
 	if err != nil {
@@ -725,11 +741,11 @@ func FetchEmailBodyFromMailbox(account *config.Account, mailbox string, uid uint
 		return body, mimeType, backendAttachmentsToFetcher(atts), nil
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return "", "", nil, err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 		return "", "", nil, err
@@ -1350,11 +1366,11 @@ func FetchAttachmentFromMailbox(account *config.Account, mailbox string, uid uin
 		return p.FetchAttachment(context.Background(), mailbox, uid, partID, encoding)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 		return nil, err
@@ -1401,11 +1417,11 @@ func moveEmail(account *config.Account, uid uint32, sourceMailbox, destMailbox s
 		return p.MoveEmail(context.Background(), uid, sourceMailbox, destMailbox)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(sourceMailbox, nil).Wait(); err != nil {
 		return err
@@ -1426,11 +1442,11 @@ func MarkEmailAsReadInMailbox(account *config.Account, mailbox string, uid uint3
 		return p.MarkAsRead(context.Background(), mailbox, uid)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 		return err
@@ -1454,11 +1470,11 @@ func MarkEmailAsUnreadInMailbox(account *config.Account, mailbox string, uid uin
 		return p.MarkAsUnread(context.Background(), mailbox, uid)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 		return err
@@ -1482,11 +1498,11 @@ func DeleteEmailFromMailbox(account *config.Account, mailbox string, uid uint32)
 		return p.DeleteEmail(context.Background(), mailbox, uid)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 		return err
@@ -1514,11 +1530,11 @@ func ArchiveEmailFromMailbox(account *config.Account, mailbox string, uid uint32
 		return p.ArchiveEmail(context.Background(), mailbox, uid)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	var archiveMailbox string
 	switch account.ServiceProvider {
@@ -1559,11 +1575,11 @@ func DeleteEmailsFromMailbox(account *config.Account, mailbox string, uids []uin
 		return p.DeleteEmails(context.Background(), mailbox, uids)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 		return err
@@ -1596,11 +1612,11 @@ func ArchiveEmailsFromMailbox(account *config.Account, mailbox string, uids []ui
 		return p.ArchiveEmails(context.Background(), mailbox, uids)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	var archiveMailbox string
 	switch account.ServiceProvider {
@@ -1637,11 +1653,11 @@ func MoveEmailsToFolder(account *config.Account, uids []uint32, sourceFolder, de
 		return p.MoveEmails(context.Background(), uids, sourceFolder, destFolder)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(sourceFolder, nil).Wait(); err != nil {
 		return err
@@ -1659,17 +1675,10 @@ func FetchEmails(account *config.Account, limit, offset uint32) ([]Email, error)
 }
 
 func FetchSentEmails(account *config.Account, limit, offset uint32) ([]Email, error) {
-	c, err := connect(account)
+	sentMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrSent, getSentMailbox(account))
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
-
-	sentMailbox, err := getMailboxByAttr(c, imap.MailboxAttrSent)
-	if err != nil {
-		sentMailbox = getSentMailbox(account)
-	}
-
 	return FetchMailboxEmails(account, sentMailbox, limit, offset)
 }
 
@@ -1678,17 +1687,10 @@ func FetchEmailBody(account *config.Account, uid uint32) (string, string, []Atta
 }
 
 func FetchSentEmailBody(account *config.Account, uid uint32) (string, string, []Attachment, error) {
-	c, err := connect(account)
+	sentMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrSent, getSentMailbox(account))
 	if err != nil {
 		return "", "", nil, err
 	}
-	defer c.Close() //nolint:errcheck
-
-	sentMailbox, err := getMailboxByAttr(c, imap.MailboxAttrSent)
-	if err != nil {
-		sentMailbox = getSentMailbox(account)
-	}
-
 	return FetchEmailBodyFromMailbox(account, sentMailbox, uid)
 }
 
@@ -1697,17 +1699,10 @@ func FetchAttachment(account *config.Account, uid uint32, partID string, encodin
 }
 
 func FetchSentAttachment(account *config.Account, uid uint32, partID string, encoding string) ([]byte, error) {
-	c, err := connect(account)
+	sentMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrSent, getSentMailbox(account))
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
-
-	sentMailbox, err := getMailboxByAttr(c, imap.MailboxAttrSent)
-	if err != nil {
-		sentMailbox = getSentMailbox(account)
-	}
-
 	return FetchAttachmentFromMailbox(account, sentMailbox, uid, partID, encoding)
 }
 
@@ -1716,17 +1711,10 @@ func DeleteEmail(account *config.Account, uid uint32) error {
 }
 
 func DeleteSentEmail(account *config.Account, uid uint32) error {
-	c, err := connect(account)
+	sentMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrSent, getSentMailbox(account))
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
-
-	sentMailbox, err := getMailboxByAttr(c, imap.MailboxAttrSent)
-	if err != nil {
-		sentMailbox = getSentMailbox(account)
-	}
-
 	return DeleteEmailFromMailbox(account, sentMailbox, uid)
 }
 
@@ -1735,27 +1723,20 @@ func ArchiveEmail(account *config.Account, uid uint32) error {
 }
 
 func ArchiveSentEmail(account *config.Account, uid uint32) error {
-	c, err := connect(account)
+	sentMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrSent, getSentMailbox(account))
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
-
-	sentMailbox, err := getMailboxByAttr(c, imap.MailboxAttrSent)
-	if err != nil {
-		sentMailbox = getSentMailbox(account)
-	}
-
 	return ArchiveEmailFromMailbox(account, sentMailbox, uid)
 }
 
 // AppendToSentMailbox appends a raw RFC822 message to the Sent mailbox via IMAP APPEND.
 func AppendToSentMailbox(account *config.Account, rawMsg []byte) error {
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	sentMailbox, err := getMailboxByAttr(c, imap.MailboxAttrSent)
 	if err != nil {
@@ -1766,9 +1747,12 @@ func AppendToSentMailbox(account *config.Account, rawMsg []byte) error {
 		Time:  time.Now(),
 	})
 	if _, err := appendCmd.Write(rawMsg); err != nil {
+		// An unfinished literal cannot be returned as a usable pooled client.
+		c.Close() //nolint:errcheck
 		return err
 	}
 	if err := appendCmd.Close(); err != nil {
+		c.Close() //nolint:errcheck
 		return err
 	}
 	_, err = appendCmd.Wait()
@@ -1803,30 +1787,21 @@ func getArchiveMailbox(account *config.Account) string {
 
 // FetchTrashEmails fetches emails from the trash folder
 func FetchTrashEmails(account *config.Account, limit, offset uint32) ([]Email, error) {
-	c, err := connect(account)
+	trashMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrTrash, getTrashMailbox(account))
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
-
-	// Try to find trash by attribute first
-	trashMailbox, err := getMailboxByAttr(c, imap.MailboxAttrTrash)
-	if err != nil {
-		// Fallback to hardcoded path
-		trashMailbox = getTrashMailbox(account)
-	}
-
 	return FetchMailboxEmails(account, trashMailbox, limit, offset)
 }
 
 // FetchArchiveEmails fetches emails from the archive/all mail folder
 // Archive contains all emails, so we match where user is sender OR recipient
 func FetchArchiveEmails(account *config.Account, limit, offset uint32) ([]Email, error) {
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	// Try to find archive by attribute first (Gmail uses \All)
 	archiveMailbox, err := getMailboxByAttr(c, imap.MailboxAttrAll)
@@ -1923,97 +1898,55 @@ func FetchArchiveEmails(account *config.Account, limit, offset uint32) ([]Email,
 
 // FetchTrashEmailBody fetches the body of an email from trash
 func FetchTrashEmailBody(account *config.Account, uid uint32) (string, string, []Attachment, error) {
-	c, err := connect(account)
+	trashMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrTrash, getTrashMailbox(account))
 	if err != nil {
 		return "", "", nil, err
 	}
-	defer c.Close() //nolint:errcheck
-
-	trashMailbox, err := getMailboxByAttr(c, imap.MailboxAttrTrash)
-	if err != nil {
-		trashMailbox = getTrashMailbox(account)
-	}
-
 	return FetchEmailBodyFromMailbox(account, trashMailbox, uid)
 }
 
 // FetchArchiveEmailBody fetches the body of an email from archive
 func FetchArchiveEmailBody(account *config.Account, uid uint32) (string, string, []Attachment, error) {
-	c, err := connect(account)
+	archiveMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrAll, getArchiveMailbox(account))
 	if err != nil {
 		return "", "", nil, err
 	}
-	defer c.Close() //nolint:errcheck
-
-	archiveMailbox, err := getMailboxByAttr(c, imap.MailboxAttrAll)
-	if err != nil {
-		archiveMailbox = getArchiveMailbox(account)
-	}
-
 	return FetchEmailBodyFromMailbox(account, archiveMailbox, uid)
 }
 
 // FetchTrashAttachment fetches an attachment from trash
 func FetchTrashAttachment(account *config.Account, uid uint32, partID string, encoding string) ([]byte, error) {
-	c, err := connect(account)
+	trashMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrTrash, getTrashMailbox(account))
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
-
-	trashMailbox, err := getMailboxByAttr(c, imap.MailboxAttrTrash)
-	if err != nil {
-		trashMailbox = getTrashMailbox(account)
-	}
-
 	return FetchAttachmentFromMailbox(account, trashMailbox, uid, partID, encoding)
 }
 
 // FetchArchiveAttachment fetches an attachment from archive
 func FetchArchiveAttachment(account *config.Account, uid uint32, partID string, encoding string) ([]byte, error) {
-	c, err := connect(account)
+	archiveMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrAll, getArchiveMailbox(account))
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
-
-	archiveMailbox, err := getMailboxByAttr(c, imap.MailboxAttrAll)
-	if err != nil {
-		archiveMailbox = getArchiveMailbox(account)
-	}
-
 	return FetchAttachmentFromMailbox(account, archiveMailbox, uid, partID, encoding)
 }
 
 // DeleteTrashEmail permanently deletes an email from trash
 func DeleteTrashEmail(account *config.Account, uid uint32) error {
-	c, err := connect(account)
+	trashMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrTrash, getTrashMailbox(account))
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
-
-	trashMailbox, err := getMailboxByAttr(c, imap.MailboxAttrTrash)
-	if err != nil {
-		trashMailbox = getTrashMailbox(account)
-	}
-
 	return DeleteEmailFromMailbox(account, trashMailbox, uid)
 }
 
 // DeleteArchiveEmail deletes an email from archive (moves to trash)
 func DeleteArchiveEmail(account *config.Account, uid uint32) error {
-	c, err := connect(account)
+	archiveMailbox, err := resolveMailboxByAttr(account, imap.MailboxAttrAll, getArchiveMailbox(account))
 	if err != nil {
 		return err
 	}
-	defer c.Close() //nolint:errcheck
-
-	archiveMailbox, err := getMailboxByAttr(c, imap.MailboxAttrAll)
-	if err != nil {
-		archiveMailbox = getArchiveMailbox(account)
-	}
-
 	return DeleteEmailFromMailbox(account, archiveMailbox, uid)
 }
 
@@ -2032,11 +1965,11 @@ func FetchFolders(account *config.Account) ([]Folder, error) {
 		return backendFoldersToFetcher(folders), nil
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	// Only request the unseen count inline via LIST ... RETURN (STATUS (UNSEEN))
 	// when the server advertises LIST-STATUS (RFC 5819). Servers without it
@@ -2142,11 +2075,11 @@ func FetchRawMessageFromMailbox(account *config.Account, mailbox string, uid uin
 		return p.FetchRawMessage(context.Background(), mailbox, uid)
 	}
 
-	c, err := connect(account)
+	c, release, err := acquireIMAPClient(account)
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close() //nolint:errcheck
+	defer release()
 
 	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 		return nil, err

@@ -7,7 +7,8 @@ The `fetcher` package handles all email retrieval operations over IMAP. It conne
 This package is the IMAP client layer for Matcha. It:
 
 - Establishes TLS/STARTTLS connections to IMAP servers based on account configuration
-- Closes the socket on every failed connection setup, including token retrieval and password/XOAUTH2 rejection; successful connections stay open for their caller or the search/header-sync pool.
+- Closes the socket on every failed connection setup, including token retrieval and password/XOAUTH2 rejection.
+- Shares authenticated clients across short IMAP operations, with at most three working connections per server login in each Matcha process and at most two unused clients retained for five minutes. Additional work waits for a client; IDLE uses a separate connection. Mailbox discovery releases its client before starting another operation. Ordinary fetches and mutations are not repeated automatically.
 - Fetches email lists with pagination and per-account filtering (`FetchEmail`, `ExtraAddresses` and `AlwaysShowMailFrom` decide which messages an account shows; see `account_addresses.go`)
 - Keeps To and Cc recipients together in `Email.To`, and preserves `Delivered-To`, `X-Forwarded-To`, and `X-Original-To` separately in `Email.DeliveryRecipients` through IMAP fetches, searches, and cached headers. Replies prefer the fetch address, then configured aliases; catch-all replies use a delivery header before falling back to To/Cc.
 - Retrieves full email bodies with MIME part traversal (preferring HTML over plain text)

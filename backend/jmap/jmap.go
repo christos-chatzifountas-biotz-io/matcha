@@ -805,11 +805,12 @@ func jmapIDToUID(id jmapclient.ID) uint32 {
 // jmapEmailToBackend converts a JMAP email to a backend.Email.
 func jmapEmailToBackend(eml *email.Email, uid uint32, accountID string) backend.Email {
 	e := backend.Email{
-		UID:       uid,
-		Subject:   eml.Subject,
-		Date:      safeTime(eml.ReceivedAt),
-		IsRead:    eml.Keywords["$seen"],
-		AccountID: accountID,
+		UID:         uid,
+		Subject:     eml.Subject,
+		Date:        safeTime(eml.ReceivedAt),
+		ArrivalDate: safeTime(eml.ReceivedAt),
+		IsRead:      eml.Keywords["$seen"],
+		AccountID:   accountID,
 	}
 	if len(eml.From) > 0 {
 		e.From = eml.From[0].String()

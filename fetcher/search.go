@@ -78,10 +78,11 @@ func searchWithClient(c *imapclient.Client, account *config.Account, folder stri
 
 	deliveryHeaderSection := buildDeliveryHeaderSection()
 	msgs, err := c.Fetch(uidSet, &imap.FetchOptions{
-		Envelope:    true,
-		UID:         true,
-		Flags:       true,
-		BodySection: []*imap.FetchItemBodySection{deliveryHeaderSection},
+		Envelope:     true,
+		InternalDate: true,
+		UID:          true,
+		Flags:        true,
+		BodySection:  []*imap.FetchItemBodySection{deliveryHeaderSection},
 	}).Collect()
 	if err != nil {
 		return nil, fmt.Errorf("imap search fetch: %w", err)
@@ -96,6 +97,7 @@ func searchWithClient(c *imapclient.Client, account *config.Account, folder stri
 			UID:                uint32(msg.UID),
 			Subject:            decodeHeader(msg.Envelope.Subject),
 			Date:               msg.Envelope.Date,
+			ArrivalDate:        msg.InternalDate,
 			IsRead:             hasSeenFlag(msg.Flags),
 			MessageID:          msg.Envelope.MessageID,
 			AccountID:          account.ID,

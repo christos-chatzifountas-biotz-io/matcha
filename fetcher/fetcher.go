@@ -112,6 +112,7 @@ type Email struct {
 	Body               string
 	BodyMIMEType       string // mimeTextHTML or mimeTextPlain; empty when unknown (legacy cache rows). Lets the renderer skip markdown→HTML for already-HTML bodies.
 	Date               time.Time
+	ArrivalDate        time.Time
 	IsRead             bool
 	MessageID          string
 	InReplyTo          string
@@ -598,10 +599,11 @@ func fetchIMAPEmails(account *config.Account, mailbox string, limit, offset uint
 		seqset.AddRange(from, cursor)
 
 		fetchCmd := c.Fetch(seqset, &imap.FetchOptions{
-			Envelope:    true,
-			UID:         true,
-			Flags:       true,
-			BodySection: []*imap.FetchItemBodySection{deliveryHeaderSection},
+			Envelope:     true,
+			InternalDate: true,
+			UID:          true,
+			Flags:        true,
+			BodySection:  []*imap.FetchItemBodySection{deliveryHeaderSection},
 		})
 
 		batchMsgs, err := fetchCmd.Collect()
@@ -661,6 +663,7 @@ func filterAndBuildBatchEmails(batchMsgs []*imapclient.FetchMessageBuffer, addre
 			ReplyTo:            replyToAddrList,
 			Subject:            decodeHeader(msg.Envelope.Subject),
 			Date:               msg.Envelope.Date,
+			ArrivalDate:        msg.InternalDate,
 			IsRead:             hasSeenFlag(msg.Flags),
 			MessageID:          msg.Envelope.MessageID,
 			InReplyTo:          firstEnvelopeInReplyTo(msg.Envelope.InReplyTo),
@@ -1835,10 +1838,11 @@ func FetchArchiveEmails(account *config.Account, limit, offset uint32) ([]Email,
 	deliveryHeaderSection := buildDeliveryHeaderSection()
 
 	fetchCmd := c.Fetch(seqset, &imap.FetchOptions{
-		Envelope:    true,
-		UID:         true,
-		Flags:       true,
-		BodySection: []*imap.FetchItemBodySection{deliveryHeaderSection},
+		Envelope:     true,
+		InternalDate: true,
+		UID:          true,
+		Flags:        true,
+		BodySection:  []*imap.FetchItemBodySection{deliveryHeaderSection},
 	})
 	msgs, err := fetchCmd.Collect()
 	if err != nil {
@@ -1880,6 +1884,7 @@ func FetchArchiveEmails(account *config.Account, limit, offset uint32) ([]Email,
 			DeliveryRecipients: deliveryRecipients(headerData),
 			Subject:            decodeHeader(msg.Envelope.Subject),
 			Date:               msg.Envelope.Date,
+			ArrivalDate:        msg.InternalDate,
 			IsRead:             hasSeenFlag(msg.Flags),
 			MessageID:          msg.Envelope.MessageID,
 			InReplyTo:          firstEnvelopeInReplyTo(msg.Envelope.InReplyTo),

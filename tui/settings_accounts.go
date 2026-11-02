@@ -51,6 +51,20 @@ func (m *Settings) updateAccounts(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			opened := SearchOpenedMsg{FolderName: "INBOX", AccountID: m.cfg.Accounts[m.accountsCursor].ID}
 			return m, func() tea.Msg { return opened }
 		}
+	case "t":
+		if m.accountsCursor < len(m.cfg.Accounts) {
+			account := &m.cfg.Accounts[m.accountsCursor]
+			previous := account.SortBy
+			account.SortBy = "arrival_date"
+			if previous == "arrival_date" {
+				account.SortBy = "email_date"
+			}
+			if err := config.SaveConfig(m.cfg); err != nil {
+				account.SortBy = previous
+				return m, func() tea.Msg { return NotifyMsg{Message: err.Error()} }
+			}
+			return m, func() tea.Msg { return ConfigSavedMsg{} }
+		}
 	case "d":
 		if m.accountsCursor < len(m.cfg.Accounts) && len(m.cfg.Accounts) > 0 {
 			m.confirmingDelete = true
@@ -154,6 +168,11 @@ func (m *Settings) viewAccounts() string {
 		if account.ServiceProvider == "custom" {
 			providerInfo = fmt.Sprintf("custom: %s", account.IMAPServer)
 		}
+		if account.SortBy == "arrival_date" {
+			providerInfo += " [Sort: server arrival date]"
+		} else {
+			providerInfo += " [Sort: email date]"
+		}
 
 		if account.SMIMECert != "" && account.SMIMEKey != "" {
 			providerInfo += " [S/MIME Configured]"
@@ -195,7 +214,7 @@ func (m *Settings) viewAccounts() string {
 	style := m.contentItemStyle(selected)
 	b.WriteString(style.Render(cursor+t("settings_accounts.add_account")) + "\n\n")
 
-	b.WriteString(helpStyle.Render(t("settings_accounts.help")))
+	b.WriteString(helpStyle.Render(t("settings_accounts.help") + " • t: change sorting"))
 
 	if m.confirmingDelete {
 		accountName := m.cfg.Accounts[m.accountsCursor].Email

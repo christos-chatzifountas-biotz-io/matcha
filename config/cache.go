@@ -17,6 +17,7 @@ type CachedEmail struct {
 	To                 []string  `json:"to"`
 	Subject            string    `json:"subject"`
 	Date               time.Time `json:"date"`
+	ArrivalDate        time.Time `json:"arrival_date,omitempty"`
 	MessageID          string    `json:"message_id"`
 	InReplyTo          string    `json:"in_reply_to,omitempty"`
 	References         []string  `json:"references,omitempty"`

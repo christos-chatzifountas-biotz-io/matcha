@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/mail"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -565,6 +566,19 @@ func (m *Inbox) displayEmails() []fetcher.Email {
 	default:
 		emails = m.emailsByAccount[m.currentAccountID]
 	}
+	useArrival := false
+	for _, account := range m.accounts {
+		if account.SortBy == "arrival_date" {
+			useArrival = true
+			break
+		}
+	}
+	if useArrival {
+		emails = slices.Clone(emails)
+		slices.SortStableFunc(emails, func(a, b fetcher.Email) int {
+			return m.sortTime(b).Compare(m.sortTime(a))
+		})
+	}
 	if !m.unreadOnly || m.hiddenView {
 		return emails
 	}
@@ -728,7 +742,7 @@ func (m *Inbox) itemsForEmails(displayEmails []fetcher.Email, showAccountLabel b
 			InReplyTo:  email.InReplyTo,
 			References: email.References,
 			Subject:    email.Subject,
-			Date:       email.Date,
+			Date:       m.sortTime(email),
 			EmailID:    id,
 			Sender:     email.From,
 		})
@@ -2156,4 +2170,29 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// sortTime preserves the displayed email date while choosing its list position.
+func (m *Inbox) sortTime(email fetcher.Email) time.Time {
+	for _, account := range m.accounts {
+		if account.ID == email.AccountID && account.SortBy == "arrival_date" && !email.ArrivalDate.IsZero() {
+			return email.ArrivalDate
+		}
+	}
+	return email.Date
+}
+
+// SetAccountSorting applies saved account choices without replacing folder mail.
+func (m *Inbox) SetAccountSorting(accounts []config.Account) {
+	selected, hasSelected := m.list.SelectedItem().(item)
+	m.accounts = accounts
+	m.updateList()
+	if hasSelected {
+		for i, entry := range m.list.Items() {
+			if candidate, ok := entry.(item); ok && candidate.uid == selected.uid && candidate.accountID == selected.accountID {
+				m.list.Select(i)
+				break
+			}
+		}
+	}
 }

@@ -695,6 +695,9 @@ func (m *Model) afterConfigSaved() {
 		}
 	}
 	if m.folderInbox != nil {
+		if inbox := m.folderInbox.GetInbox(); inbox != nil {
+			inbox.SetAccountSorting(m.config.Accounts)
+		}
 		m.folderInbox.SetDateFormat(m.config.GetDateFormat())
 		m.folderInbox.SetDetailedDates(m.config.EnableDetailedDates)
 		m.folderInbox.SetDefaultThreaded(m.config.EnableThreaded)

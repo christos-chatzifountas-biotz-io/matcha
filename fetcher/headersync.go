@@ -118,7 +118,7 @@ func scanFolderHeaders(c *imapclient.Client, account *config.Account, folder str
 
 	seen := make(map[uint32]bool, len(known.Emails)+len(known.Hidden))
 	for _, email := range known.Emails {
-		if read, ok := readByUID[email.UID]; ok {
+		if read, ok := readByUID[email.UID]; ok && !email.ArrivalDate.IsZero() {
 			email.IsRead = read
 			updated.Emails = append(updated.Emails, email)
 			seen[email.UID] = true
@@ -166,10 +166,11 @@ func fetchHeaders(c *imapclient.Client, account *config.Account, folder string, 
 	}
 	deliveryHeaderSection := buildDeliveryHeaderSection()
 	msgs, err := c.Fetch(wanted, &imap.FetchOptions{
-		Envelope:    true,
-		UID:         true,
-		Flags:       true,
-		BodySection: []*imap.FetchItemBodySection{deliveryHeaderSection},
+		Envelope:     true,
+		InternalDate: true,
+		UID:          true,
+		Flags:        true,
+		BodySection:  []*imap.FetchItemBodySection{deliveryHeaderSection},
 	}).Collect()
 	if err != nil {
 		return headers, err
@@ -207,7 +208,7 @@ func fetchHeaders(c *imapclient.Client, account *config.Account, folder string, 
 		headerData := msg.FindBodySection(deliveryHeaderSection)
 		email := Email{
 			UID: uint32(msg.UID), From: from, To: to, ReplyTo: replyTo, Subject: decodeHeader(msg.Envelope.Subject),
-			Date: msg.Envelope.Date, IsRead: hasSeenFlag(msg.Flags), MessageID: msg.Envelope.MessageID,
+			Date: msg.Envelope.Date, ArrivalDate: msg.InternalDate, IsRead: hasSeenFlag(msg.Flags), MessageID: msg.Envelope.MessageID,
 			InReplyTo:  firstEnvelopeInReplyTo(msg.Envelope.InReplyTo),
 			References: headerMessageIDs(headerData, "References"), AccountID: account.ID,
 			DeliveryRecipients: deliveryRecipients(headerData),

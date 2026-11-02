@@ -135,7 +135,7 @@ func BackendEmailsToFetcher(emails []backend.Email) []fetcher.Email {
 		result[i] = fetcher.Email{
 			UID: e.UID, From: e.From, To: e.To, ReplyTo: e.ReplyTo,
 			DeliveryRecipients: e.DeliveryRecipients,
-			Subject:            e.Subject, Body: e.Body, Date: e.Date, IsRead: e.IsRead,
+			Subject:            e.Subject, Body: e.Body, Date: e.Date, ArrivalDate: e.ArrivalDate, IsRead: e.IsRead,
 			MessageID: e.MessageID, References: e.References, AccountID: e.AccountID,
 		}
 	}

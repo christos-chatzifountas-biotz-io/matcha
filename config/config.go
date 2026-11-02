@@ -85,6 +85,8 @@ type Account struct {
 	// SendAsEmail controls the visible From header on outgoing mail.
 	// If empty, it defaults to FetchEmail, then Email.
 	SendAsEmail string `json:"send_as_email,omitempty"`
+	// SortBy selects email_date (the default) or arrival_date for newest-first sorting.
+	SortBy string `json:"sort_by,omitempty"`
 	// CatchAll skips per-address filtering so all inbox messages are shown,
 	// regardless of which address they were delivered to.
 	CatchAll bool `json:"catch_all,omitempty"`
@@ -656,6 +658,7 @@ type secureDiskAccount struct {
 	ServiceProvider        string   `json:"service_provider"`
 	FetchEmail             string   `json:"fetch_email,omitempty"`
 	SendAsEmail            string   `json:"send_as_email,omitempty"`
+	SortBy                 string   `json:"sort_by,omitempty"`
 	IMAPServer             string   `json:"imap_server,omitempty"`
 	IMAPPort               int      `json:"imap_port,omitempty"`
 	SMTPServer             string   `json:"smtp_server,omitempty"`
@@ -794,6 +797,7 @@ func SaveConfig(config *Config) error {
 				ServiceProvider:        acc.ServiceProvider,
 				FetchEmail:             acc.FetchEmail,
 				SendAsEmail:            acc.SendAsEmail,
+				SortBy:                 acc.SortBy,
 				IMAPServer:             acc.IMAPServer,
 				IMAPPort:               acc.IMAPPort,
 				SMTPServer:             acc.SMTPServer,
@@ -866,6 +870,7 @@ func LoadConfig() (*Config, error) {
 		ServiceProvider        string   `json:"service_provider"`
 		FetchEmail             string   `json:"fetch_email,omitempty"`
 		SendAsEmail            string   `json:"send_as_email,omitempty"`
+		SortBy                 string   `json:"sort_by,omitempty"`
 		IMAPServer             string   `json:"imap_server,omitempty"`
 		IMAPPort               int      `json:"imap_port,omitempty"`
 		SMTPServer             string   `json:"smtp_server,omitempty"`
@@ -983,6 +988,7 @@ func LoadConfig() (*Config, error) {
 			ServiceProvider:        rawAcc.ServiceProvider,
 			FetchEmail:             rawAcc.FetchEmail,
 			SendAsEmail:            rawAcc.SendAsEmail,
+			SortBy:                 rawAcc.SortBy,
 			IMAPServer:             rawAcc.IMAPServer,
 			IMAPPort:               rawAcc.IMAPPort,
 			SMTPServer:             rawAcc.SMTPServer,

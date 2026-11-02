@@ -7,6 +7,17 @@ sidebar_position: 5
 
 Configuration is stored in `~/.config/matcha/config.json`.
 
+## Sorting by account
+
+In Settings → Accounts, select an account and press `t` to switch between email date
+and server arrival date. Each account keeps its own choice; both sort newest first.
+The date shown on each message remains the email's original date.
+
+The account's `sort_by` field accepts `email_date` (the default when omitted) or
+`arrival_date`. Server arrival date is useful for messages with missing or incorrect
+date headers. When a backend or an older cached message has no arrival date, Matcha
+uses the email date until that information is available.
+
 ## Example Configuration
 
 > Passwords have been removed since [v0.19.0](https://github.com/floatpane/matcha/releases/tag/v0.19.0)
@@ -145,3 +156,5 @@ For an account with `"auth_method": "oauth2"`, set `oauth_token_cmd` to a shell 
   "oauth_token_cmd": "~/.local/libexec/thunderbird-oauth-token you@gmail.com"
 }
 ```
+
+Arrival sorting uses IMAP INTERNALDATE, JMAP receivedAt, or Maildir file modification time. JMAP already uses receivedAt for its default date, so both choices keep its existing order. POP3 and older cached messages without an arrival timestamp fall back to the email date; refresh to fetch available arrival timestamps. Sorting changes list and thread order while the displayed email date stays unchanged.

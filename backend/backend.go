@@ -84,6 +84,7 @@ type Email struct {
 	Subject            string
 	Body               string
 	Date               time.Time
+	ArrivalDate        time.Time
 	IsRead             bool
 	MessageID          string
 	InReplyTo          string

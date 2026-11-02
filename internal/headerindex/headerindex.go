@@ -534,7 +534,7 @@ func fold(s string) string {
 
 func emailFromCache(c config.CachedEmail) fetcher.Email {
 	return fetcher.Email{
-		UID: c.UID, From: c.From, To: c.To, Subject: c.Subject, Date: c.Date,
+		UID: c.UID, From: c.From, To: c.To, Subject: c.Subject, Date: c.Date, ArrivalDate: c.ArrivalDate,
 		DeliveryRecipients: c.DeliveryRecipients,
 		MessageID:          c.MessageID, InReplyTo: c.InReplyTo, References: c.References,
 		AccountID: c.AccountID, IsRead: c.IsRead,
@@ -543,7 +543,7 @@ func emailFromCache(c config.CachedEmail) fetcher.Email {
 
 func emailToCache(e fetcher.Email) config.CachedEmail {
 	return config.CachedEmail{
-		UID: e.UID, From: e.From, To: e.To, Subject: e.Subject, Date: e.Date,
+		UID: e.UID, From: e.From, To: e.To, Subject: e.Subject, Date: e.Date, ArrivalDate: e.ArrivalDate,
 		DeliveryRecipients: e.DeliveryRecipients,
 		MessageID:          e.MessageID, InReplyTo: e.InReplyTo, References: e.References,
 		AccountID: e.AccountID, IsRead: e.IsRead,

@@ -45,6 +45,7 @@ func backendEmailsToFetcher(in []backend.Email) []Email {
 			Subject:            e.Subject,
 			Body:               e.Body,
 			Date:               e.Date,
+			ArrivalDate:        e.ArrivalDate,
 			IsRead:             e.IsRead,
 			MessageID:          e.MessageID,
 			InReplyTo:          e.InReplyTo,

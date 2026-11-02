@@ -230,6 +230,9 @@ func (p *Provider) readHeader(msg *emaildir.Message) (backend.Email, error) {
 	}
 
 	email := headerToEmail(&entity.Header, msg.Key(), p.account.ID)
+	if info, err := os.Stat(msg.Filename()); err == nil {
+		email.ArrivalDate = info.ModTime()
+	}
 
 	for _, fl := range msg.Flags() {
 		if fl == emaildir.FlagSeen {
@@ -427,6 +430,9 @@ func (p *Provider) matchOpen(msg *emaildir.Message) (backend.Email, string, erro
 		return backend.Email{}, "", err
 	}
 	email := headerToEmail(&entity.Header, msg.Key(), p.account.ID)
+	if info, err := os.Stat(msg.Filename()); err == nil {
+		email.ArrivalDate = info.ModTime()
+	}
 
 	for _, fl := range msg.Flags() {
 		if fl == emaildir.FlagSeen {

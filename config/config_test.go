@@ -117,6 +117,17 @@ func TestSaveAndLoadConfigInSecureModeKeepsSettings(t *testing.T) {
 	if !reflect.DeepEqual(loadedConfig, expectedConfig) {
 		t.Errorf("secure save lost settings.\nGot:  %+v\nWant: %+v", loadedConfig, expectedConfig)
 	}
+	loadedConfig.Accounts = []Account{{ID: "sort-test", Email: "sort@example.com", SortBy: "arrival_date"}}
+	if err := SaveConfig(loadedConfig); err != nil {
+		t.Fatal(err)
+	}
+	loadedConfig, err = LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loadedConfig.Accounts) != 1 || loadedConfig.Accounts[0].SortBy != "arrival_date" {
+		t.Fatal("encrypted config lost account sorting")
+	}
 }
 
 func TestExternalEditorCommandPrecedence(t *testing.T) {

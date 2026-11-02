@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"testing"
@@ -10,6 +12,53 @@ import (
 	"github.com/floatpane/matcha/fetcher"
 	"github.com/floatpane/matcha/internal/headerindex"
 )
+
+func TestAccountSortingSavesOnlySelectedAccount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cfg := &config.Config{Accounts: []config.Account{{ID: "first"}, {ID: "second"}}}
+	settings := NewSettings(cfg)
+	settings.accountsCursor = 1
+	for _, want := range []string{"arrival_date", "email_date"} {
+		_, cmd := settings.updateAccounts(tea.KeyPressMsg{Code: 't', Text: "t"})
+		if cmd == nil {
+			t.Fatal("sorting change did not save")
+		}
+		if _, ok := cmd().(ConfigSavedMsg); !ok {
+			t.Fatalf("sorting change returned %T", cmd())
+		}
+		saved, err := config.LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if saved.Accounts[0].SortBy != "" || saved.Accounts[1].SortBy != want {
+			t.Fatalf("saved account sorting = %q, %q", saved.Accounts[0].SortBy, saved.Accounts[1].SortBy)
+		}
+	}
+	settings.accountsCursor = len(cfg.Accounts)
+	if _, cmd := settings.updateAccounts(tea.KeyPressMsg{Code: 't', Text: "t"}); cmd != nil {
+		t.Fatal("add-account row changed sorting")
+	}
+}
+
+func TestAccountSortingRestoresChoiceWhenSaveFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.WriteFile(filepath.Join(home, ".config"), []byte("file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Accounts: []config.Account{{ID: "one", SortBy: "email_date"}}}
+	settings := NewSettings(cfg)
+	_, cmd := settings.updateAccounts(tea.KeyPressMsg{Code: 't', Text: "t"})
+	if cfg.Accounts[0].SortBy != "email_date" {
+		t.Fatal("failed save changed sorting")
+	}
+	if _, ok := cmd().(NotifyMsg); !ok {
+		t.Fatalf("failed save returned %T", cmd())
+	}
+}
 
 func TestEnterOpensAccountSettings(t *testing.T) {
 	settings := NewSettings(&config.Config{Accounts: []config.Account{{ID: "duth", Email: "chrichat57"}}})
